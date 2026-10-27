@@ -1,0 +1,187 @@
+package minutes
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"sort"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"deo-minutes/internal/llm"
+)
+
+var sample = Transcript{
+	{At: 5 * time.Second, Speaker: "Ana Pop", Text: "Bună ziua tuturor, începem ședința de coordonare."},
+	{At: 2 * time.Minute, Speaker: "Ion Ionescu", Text: "Ion, te rog să trimiți raportul de buget până vineri."},
+	{At: 2*time.Minute + 20*time.Second, Speaker: "Ion Ionescu", Text: "Am decis să mutăm lansarea în decembrie."},
+	{At: 3 * time.Minute, Speaker: "Maria Ionescu", Text: "Există riscul ca furnizorul de servere să întârzie livrarea."},
+}
+
+// Every object in the schema must be closed and require all its properties
+// (structured outputs strict mode), and the schema must describe exactly the
+// JSON fields of Records.
+func TestSchemaStrictAndMatchesStructs(t *testing.T) {
+	var walk func(path string, s map[string]any)
+	walk = func(path string, s map[string]any) {
+		switch s["type"] {
+		case "object":
+			if s["additionalProperties"] != false {
+				t.Errorf("%s: additionalProperties must be false", path)
+			}
+			props := s["properties"].(map[string]any)
+			req := s["required"].([]string)
+			if len(req) != len(props) {
+				t.Errorf("%s: required %v != properties", path, req)
+			}
+			for k, v := range props {
+				walk(path+"."+k, v.(map[string]any))
+			}
+		case "array":
+			walk(path+"[]", s["items"].(map[string]any))
+		}
+	}
+	walk("$", Schema())
+
+	keys := func(s map[string]any) []string {
+		var out []string
+		for k := range s["properties"].(map[string]any) {
+			out = append(out, k)
+		}
+		sort.Strings(out)
+		return out
+	}
+	jsonKeys := func(v any) []string {
+		var out []string
+		rt := reflect.TypeOf(v)
+		for i := 0; i < rt.NumField(); i++ {
+			out = append(out, strings.Split(rt.Field(i).Tag.Get("json"), ",")[0])
+		}
+		sort.Strings(out)
+		return out
+	}
+	props := Schema()["properties"].(map[string]any)
+	for name, v := range map[string]any{"actions": ActionItem{}, "decisions": Decision{}, "risks": Risk{}, "interdependencies": Interdependency{}, "changes": Change{}} {
+		item := props[name].(map[string]any)["items"].(map[string]any)
+		if got, want := keys(item), jsonKeys(v); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s schema keys %v != struct keys %v", name, got, want)
+		}
+	}
+}
+
+func TestValidate(t *testing.T) {
+	r := Records{
+		Actions: []ActionItem{
+			{Key: "a1", Title: "Raport buget", Status: "", Deadline: "vineri",
+				// diacritics/case differ, wrong speaker and slightly wrong time: fixed, kept
+				Evidence: []Evidence{{At: "00:02:10", Speaker: "Ana Pop", Quote: "trimiti raportul de BUGET pana vineri"}}},
+			{Key: "a2", Title: "Inventat", Evidence: []Evidence{{At: "00:02:00", Speaker: "Ion Ionescu", Quote: "vom cumpăra o mașină nouă pentru birou"}}},
+			{Key: "a3", Title: "Fără dovadă"},
+		},
+		Decisions: []Decision{
+			{Key: "d1", Statement: "Lansarea se mută în decembrie", Status: "Bogus",
+				Evidence: []Evidence{{At: "00:02:20", Speaker: "Ion Ionescu", Quote: "Am decis să mutăm lansarea în decembrie"}}},
+			// quote is real but 40 minutes away from the claimed time: dropped
+			{Key: "d2", Statement: "x", Evidence: []Evidence{{At: "00:42:00", Speaker: "Ion Ionescu", Quote: "Am decis să mutăm lansarea în decembrie"}}},
+		},
+		Risks: []Risk{{Key: "r1", TitleDescription: "Întârziere furnizor", Severity: "Huge",
+			Evidence: []Evidence{{At: "00:03:00", Speaker: "Maria Ionescu", Quote: "furnizorul de servere să întârzie livrarea"}}}},
+	}
+	var rep Report
+	out := Validate(r, sample, &rep)
+	if len(out.Actions) != 1 || out.Actions[0].Key != "a1" {
+		t.Fatalf("actions = %+v", out.Actions)
+	}
+	a := out.Actions[0]
+	if a.Status != "Open" || a.Deadline != "" || !strings.Contains(a.Notes, "Termen menționat: vineri") {
+		t.Errorf("action normalization: %+v", a)
+	}
+	if a.Evidence[0].Speaker != "Ion Ionescu" || a.Evidence[0].At != "00:02:00" {
+		t.Errorf("evidence not corrected: %+v", a.Evidence[0])
+	}
+	if len(out.Decisions) != 1 || out.Decisions[0].Status != "Active" {
+		t.Errorf("decisions = %+v", out.Decisions)
+	}
+	if len(out.Risks) != 1 || out.Risks[0].Severity != "" {
+		t.Errorf("risks = %+v", out.Risks)
+	}
+	if rep.Dropped != 3 || rep.EvidenceFixed != 1 || rep.DeadlinesMoved != 1 {
+		t.Errorf("report = %+v", rep)
+	}
+}
+
+func TestWindows(t *testing.T) {
+	var tr Transcript
+	for m := 0; m < 100; m++ {
+		tr = append(tr, Line{At: time.Duration(m) * time.Minute, Speaker: "A", Text: "x"})
+	}
+	ws := tr.Windows(45*time.Minute, 3*time.Minute)
+	if len(ws) != 3 || ws[0][0].At != 0 || ws[1][0].At != 42*time.Minute || ws[2][len(ws[2])-1].At != 99*time.Minute {
+		t.Fatalf("windows: %d", len(ws))
+	}
+}
+
+func fakeLLM(calls *atomic.Int32, answer func(req llm.Request) Records) llm.Client {
+	return llm.Func(func(_ context.Context, req llm.Request) ([]byte, error) {
+		calls.Add(1)
+		return json.Marshal(answer(req))
+	})
+}
+
+var goodAction = ActionItem{Key: "a1", Title: "Raport", Description: "Trimite raportul de buget",
+	Evidence: []Evidence{{At: "00:02:00", Speaker: "Ion Ionescu", Quote: "trimiți raportul de buget până vineri"}}}
+
+func TestExtractSinglePass(t *testing.T) {
+	var calls atomic.Int32
+	x := &Extractor{LLM: fakeLLM(&calls, func(req llm.Request) Records {
+		if !strings.Contains(req.User, "Meeting date: 2026-10-27 (Tuesday)") || !strings.Contains(req.User, "[00:02:00] Ion Ionescu:") {
+			t.Errorf("user message missing facts:\n%s", req.User)
+		}
+		return Records{Actions: []ActionItem{goodAction, {Key: "a2", Title: "fals", Evidence: []Evidence{{At: "00:01:00", Quote: "nu s-a spus"}}}}}
+	})}
+	recs, rep, err := x.Extract(context.Background(), MeetingInfo{Project: "P", Date: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)}, sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || len(recs.Actions) != 1 || rep.Dropped != 1 {
+		t.Fatalf("calls=%d recs=%+v rep=%+v", calls.Load(), recs, rep)
+	}
+}
+
+func TestExtractMapReduce(t *testing.T) {
+	var calls atomic.Int32
+	x := &Extractor{SinglePassTokens: 1, Window: 150 * time.Second, Overlap: 10 * time.Second,
+		LLM: fakeLLM(&calls, func(req llm.Request) Records {
+			if strings.HasPrefix(req.User, "Records from each window") {
+				// merge: dedupe to one action, keep evidence verbatim
+				return Records{Actions: []ActionItem{goodAction}}
+			}
+			return Records{Actions: []ActionItem{goodAction}}
+		})}
+	recs, _, err := x.Extract(context.Background(), MeetingInfo{Date: time.Now()}, sample)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 2 windows + 1 merge
+	if calls.Load() != 3 || len(recs.Actions) != 1 {
+		t.Fatalf("calls=%d actions=%d", calls.Load(), len(recs.Actions))
+	}
+}
+
+func TestExtractEmptyTranscript(t *testing.T) {
+	x := &Extractor{LLM: llm.Func(func(context.Context, llm.Request) ([]byte, error) { t.Fatal("must not call"); return nil, nil })}
+	if _, _, err := x.Extract(context.Background(), MeetingInfo{}, nil); err == nil {
+		t.Fatal("want error")
+	}
+}
+
+func TestParseClock(t *testing.T) {
+	if d, ok := ParseClock("01:02:03"); !ok || d != time.Hour+2*time.Minute+3*time.Second {
+		t.Fatal(d)
+	}
+	if _, ok := ParseClock("abc"); ok {
+		t.Fatal("abc parsed")
+	}
+}

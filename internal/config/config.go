@@ -11,12 +11,15 @@ import (
 	"path/filepath"
 )
 
+// Gateway is how the app reaches Claude: Bedrock's Messages endpoint
+// directly (empty BaseURL) or the company gateway in front of it.
 type Gateway struct {
-	Kind    string `json:"kind"` // "bedrock" | "openai_compat"
-	BaseURL string `json:"base_url"`
-	Region  string `json:"region"`
-	ModelID string `json:"model_id"`
-	Auth    string `json:"auth"` // "bearer" | "sigv4"
+	BaseURL       string `json:"base_url"`
+	Region        string `json:"region"`
+	ModelID       string `json:"model_id"`
+	FallbackModel string `json:"fallback_model"` // used only if the main model refuses
+	Auth          string `json:"auth"`           // "sigv4" (AWS keys) | "api_key" (Bedrock API key) | "bearer" (gateway key)
+	Effort        string `json:"effort"`         // low | medium | high | xhigh | max
 }
 
 type Transcribe struct {
@@ -59,7 +62,13 @@ type Config struct {
 // Defaults returns the configuration used when no file exists yet.
 func Defaults() Config {
 	return Config{
-		Gateway: Gateway{Kind: "bedrock", Region: "eu-central-1", Auth: "bearer"},
+		Gateway: Gateway{
+			Region:        "eu-central-1",
+			ModelID:       "anthropic.claude-opus-5-5",
+			FallbackModel: "anthropic.claude-opus-4-8",
+			Auth:          "sigv4",
+			Effort:        "high",
+		},
 		Transcribe: Transcribe{
 			Region:        "eu-central-1",
 			Language:      "ro-RO",

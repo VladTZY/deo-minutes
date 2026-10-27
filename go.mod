@@ -3,6 +3,10 @@ module deo-minutes
 go 1.26.0
 
 require (
+	github.com/aws/aws-sdk-go-v2 v1.47.4
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.11
+	github.com/aws/aws-sdk-go-v2/service/transcribestreaming v1.44.8
+	github.com/aws/smithy-go v1.28.6
 	github.com/chromedp/cdproto v0.158.5
 	github.com/chromedp/chromedp v0.21.0
 	github.com/wailsapp/wails/v2 v2.17.0
@@ -13,6 +17,9 @@ require (
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.24 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.7 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.7 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.16 // indirect

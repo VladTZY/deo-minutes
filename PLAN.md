@@ -236,9 +236,9 @@ Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user ab
 
 ### M3: Transcription + speakers
 
-- [ ] **T3.1** `stt/streamer.go`: PCM channel → `StartStreamTranscription` (16 kHz, PCM, `ro-RO` or multi-language per S3), partial results ignored, final results kept with word-level timestamps. **BLOCKED(Q3b)** for live credentials; unit-test against a fake stream.
-- [ ] **T3.2** `stt/rotate.go`: open a new stream every `rotate_min` (and on error), overlap 2 s, dedupe words by timestamp. Network drop: buffer PCM on disk, reconnect with backoff, replay. Test: simulated disconnect mid-sentence loses no words.
-- [ ] **T3.3** `speakers/align.go`: assign each word to the active speaker at its timestamp (majority over the word's span; overlapping speech → speaker with most time); merge consecutive words into lines; unknown → "Participant necunoscut". Golden test with `testdata/words.json` + `speaker_events.json`.
+- [x] **T3.1** `stt/streamer.go`: PCM channel → `StartStreamTranscription` (16 kHz, PCM, `ro-RO` or multi-language per S3), partial results ignored, final results kept with word-level timestamps. **BLOCKED(Q3b)** for live credentials; unit-test against a fake stream.
+- [x] **T3.2** `stt/rotate.go`: open a new stream every `rotate_min` (and on error), overlap 2 s, dedupe words by timestamp. Network drop: buffer PCM on disk, reconnect with backoff, replay. Test: simulated disconnect mid-sentence loses no words.
+- [x] **T3.3** `speakers/align.go`: assign each word to the active speaker at its timestamp (majority over the word's span; overlapping speech → speaker with most time); merge consecutive words into lines; unknown → "Participant necunoscut". Golden test with `testdata/words.json` + `speaker_events.json`.
 - [ ] **T3.4** Write `_transcriere.txt` incrementally (crash-safe); delete raw audio after success unless `keep_audio`.
 
 ### M4: LLM extraction
@@ -374,4 +374,5 @@ tasks, and the Decision log.
 | 2026-10-26 | Q13, Q14 | Q13 defaults accepted for now (5.2). `Team` column left empty in v1 (T9.2 later). |
 | 2026-10-27 | S4, M5 | Excel export built and tested. Risk/Decision evidence goes in cell comments; `fullCalcOnLoad` set. Meetings have passwords (Q7 update). |
 | 2026-10-27 | M2 | Bot built on chromedp v0.21 (new generic API). Join flow verified in Chrome against a fake Webex page (landing, cookie, name/email, password, preview, lobby, meeting, end; wrong password). Audio capture via RTCPeerConnection hook verified with a real WebRTC loopback. Bot browser runs `--lang=en-US` so selectors are English. Guest email is a setting (`bot.email`). Roster includes the bot itself; filter in the app layer. |
+| 2026-10-27 | M3 | Transcribe streaming client behind a `Stream` interface; tested with a fake stream (reconnect + replay without duplicates, quiet-moment rotation, fatal auth stop, capture gaps). Live AWS untested until 9.2. Speaker aligner votes over Webex snapshots, carries the last speaker 3 s, has a `Lag` knob to calibrate in S1. T3.4 (incremental transcript file) lands with the session orchestrator. |
 | 2026-10-26 | Q7, Q9, Q10 | Own-company meetings, guests allowed, lobby on, no password; user informs participants; output to Documents. |

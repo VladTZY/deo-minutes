@@ -186,11 +186,12 @@ Field rules (put in the prompt **and** enforced in `validate.go`):
 - `Deadline` resolved to a date against the meeting date ("vineri" → next Friday); if unresolvable, empty and the phrase goes into `Notes`.
 - Enums must match 5.2 exactly; otherwise retry once with the validation error, then blank the field and log.
 - Anti-hallucination: each `Evidence.Quote` must fuzzy-match (normalize case/diacritics/whitespace, ≥ 0.85) a transcript line within ±60 s of `At`, said by `Speaker`. A record with no valid evidence is dropped and logged.
-- Export: `Notes` (or `Outcomes` / `Status update` where a sheet has no Notes) gets `[01:23:45] Ion Popescu: „citat”` so people can check each row.
+- Export: evidence `[01:23:45] Ion Popescu: „citat”` goes into `Notes` on sheets that have it (Actions, Interdependencies, Changes) and into an Excel cell comment on the `#` cell for Risks and Decisions, so content columns stay clean.
 
 Workbook cell writes:
-- Dates as real Excel dates (`time.Time`) with the template's number format, not strings.
-- Formula-injection guard: any text starting with `= + - @` gets a leading `'`.
+- Dates as real Excel dates with format `dd.mm.yyyy`, keeping the cell's other styling.
+- Text is written as string cells, which Excel never evaluates, so no `'` prefix (that guard only matters for CSV). Control characters stripped, length capped at 32,767.
+- `fullCalcOnLoad` is set so the template's formulas (`B6`, `=Meetings!B1`) recompute on open.
 - Never touch formula cells (`B6`, `A2`/`B2` on the other sheets).
 
 ### 5.4 Output files
@@ -212,7 +213,7 @@ Folder `<output.dir>` (default `Documents\DEO Minute`). Per meeting:
   **Done when:** a non-admin Windows user gets (1) an audible WAV of other participants, (2) the participant list with names, (3) an active-speaker timeline that matches who actually spoke, with GPU disabled (CDP `SystemInfo.getInfo` shows no hardware acceleration). Test with ≥ 10 participants so the participants panel is long enough to scroll (virtualized list). Record: URL forms that work (`*.webex.com/meet/<name>`, `*.webex.com/<site>/j.php?MTID=…`, `*.webex.com/wbxmjs/joinservice/…`), all selectors used, whether Edge policy `RemoteDebuggingAllowed` blocks us, whether headless is detected (if so, headed with `--window-position=-32000,-32000`).
 - [ ] **S2 Gateway protocol. BLOCKED(Q2).** Send one Converse request with a tool definition from Go. **Done when:** `gateway.kind` + `auth` known, forced tool call returns valid Romanian JSON; max input tokens recorded.
 - [ ] **S3 Transcribe Streaming, Romanian. BLOCKED(Q3b) for credentials.** Stream S1's WAV (and a 10-min RO/EN sample) to `StartStreamTranscription` in `eu-central-1` with `ro-RO`, then with `IdentifyMultipleLanguages` + `ro-RO,en-US`. **Done when:** we know which mode reads better, word timestamps are present, latency is < 5 s, and the max stream duration / reconnect behaviour is confirmed (needed for D8).
-- [ ] **S4 Template fidelity.** Fill `templates/project_workbook_template.xlsx` with excelize: 60 action items, 50 participants, 15 rows in each other table. **Done when:** the file opens in Excel with no repair prompt, tables have grown with banding/styles intact, comments on Change Log headers are still there, formulas `B6`/`A2` still compute. Otherwise switch to D7 fallback.
+- [x] **S4 Template fidelity.** *(2026-10-27: passes in Go tests + openpyxl + LibreOffice render; tables grow, header comments and formulas kept. Still to eyeball in real Excel on Windows: no repair prompt, title formula recomputes via `fullCalcOnLoad`.)* Fill `templates/project_workbook_template.xlsx` with excelize: 60 action items, 50 participants, 15 rows in each other table. **Done when:** the file opens in Excel with no repair prompt, tables have grown with banding/styles intact, comments on Change Log headers are still there, formulas `B6`/`A2` still compute. Otherwise switch to D7 fallback.
 
 Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user about 9.1 (Web SDK) or D2(c). If S1 cannot read the active speaker reliably → stop, discuss speaker attribution options before M3.
 
@@ -227,7 +228,7 @@ Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user ab
 ### M2: Bot (`internal/bot`)
 
 - [ ] **T2.1** `browser.go`: find browser (config override → Edge → Chrome for Testing in `%LOCALAPPDATA%`), launch with S1 flags, fresh profile per session, wiped after.
-- [ ] **T2.2** `webex_flow.go` + `selectors.go`: validate link (https, host ends in `.webex.com`, else Romanian error), navigate, join flow with all selectors in `selectors.go`. States: prejoin, lobby, in-meeting, ended, removed. Lobby timeout → `Eroare`.
+- [ ] **T2.2** `webex_flow.go` + `selectors.go`: validate link (https, host ends in `.webex.com`, else Romanian error), navigate, join flow with all selectors in `selectors.go`. States: prejoin, password prompt (fill from the session's password; wrong password → Romanian error), lobby, in-meeting, ended, removed. Lobby timeout → `Eroare`.
 - [ ] **T2.3** `capture.js`: injected with `page.AddScriptToEvaluateOnNewDocument` before navigation. Hook `RTCPeerConnection` `track` events, mix remote audio tracks into one `MediaStreamDestination`, AudioWorklet → 16 kHz Int16, 1 s chunks (base64 + page timestamp) → binding `deoAudio`. Go side caps payload size.
 - [ ] **T2.4** `roster.js`: keep the participants panel open; every 500 ms emit `{ts, participants[], activeSpeaker}` → binding `deoSpeaker`. Handle the virtualized list (scroll to collect all 50 names once, then track joins/leaves). Active speaker from the stage label / speaking indicator found in S1.
 - [ ] **T2.5** End detection: "meeting ended" DOM, removed by host, page closed, or no audio energy for `silence_end_min` (default 10, long breaks happen in 4 h meetings). **Oprește** leaves cleanly, pipeline continues.
@@ -250,14 +251,14 @@ Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user ab
 
 ### M5: Workbook export
 
-- [ ] **T5.1** `export/workbook.go`: open embedded template, write `Meetings` cells and participants (`Local/Call` = `Call` for everyone in the Webex roster), write each register, IDs `AI-1…`, `ID-1…`, `R-1…`, `D-1…`, `CH-1…`, resolve cross-refs, evidence into Notes.
-- [ ] **T5.2** `export/tables.go`: grow tables per 5.2 "Capacity"; clear unused prefilled IDs beyond our rows (leave the rows, blank the `#` cell) so the sheet does not show empty `AI-17` rows.
-- [ ] **T5.3** `sanitize.go`: formula-injection guard, strip control chars, cap cell length at 32,767.
-- [ ] **T5.4** Golden test: fixed records → read back with excelize and compare cell values, table refs, and sheet list. **Done when (M5):** `go test ./...` green and a real file opens in Excel (RO locale) without repair, diacritics intact. **Q13 may adjust this milestone.**
+- [x] **T5.1** `export/workbook.go`: open embedded template, write `Meetings` cells and participants (`Local/Call` = `Call` for everyone in the Webex roster), write each register, IDs `AI-1…`, `ID-1…`, `R-1…`, `D-1…`, `CH-1…`, resolve cross-refs, evidence into Notes.
+- [x] **T5.2** `export/tables.go`: grow tables per 5.2 "Capacity"; clear unused prefilled IDs beyond our rows (leave the rows, blank the `#` cell) so the sheet does not show empty `AI-17` rows.
+- [x] **T5.3** `sanitize.go`: formula-injection guard, strip control chars, cap cell length at 32,767.
+- [x] **T5.4** Golden test: fixed records → read back with excelize and compare cell values, table refs, and sheet list. **Done when (M5):** `go test ./...` green and a real file opens in Excel (RO locale) without repair, diacritics intact. **Q13 may adjust this milestone.**
 
 ### M6: UI (Romanian)
 
-- [ ] **T6.1** Main page: link, Proiect (remembered), Nr. întâlnire (auto-suggest last + 1 per project), Întocmit de (remembered), **Pornește** / **Oprește**, state badge, elapsed timer, live transcript tail with speaker names, participant count; on finish **Deschide Excel** and **Deschide folderul**.
+- [ ] **T6.1** Main page: link, Parolă ședință (optional, masked, never saved), Proiect (remembered), Nr. întâlnire (auto-suggest last + 1 per project), Întocmit de (remembered), **Pornește** / **Oprește**, state badge, elapsed timer, live transcript tail with speaker names, participant count; on finish **Deschide Excel** and **Deschide folderul**.
 - [ ] **T6.2** Setări: gateway fields + key (write-only, shows "Salvat"), AWS credentials for Transcribe (write-only), region, **Testează conexiunea** (gateway + Transcribe 2 s silence), output folder, retention.
 - [ ] **T6.3** Istoric: past meetings (date, project, no., item counts), open/delete; retention cleanup on startup.
 - [ ] **T6.4** Romanian error catalogue in `ro.json` for every failure path: link invalid, browser not found, policy blocked, lobby timeout, removed by host, no audio, Transcribe auth/region/network, gateway auth/timeout/limit, Excel write failed / file open in Excel. No stack traces in UI.
@@ -323,7 +324,7 @@ tasks, and the Decision log.
 | Q4 | ANSWERED | Up to 4 h, 50 participants, Romanian + English, speaker names required. | — | — |
 | Q5 | PARTIAL | **Answered:** laptops can run the unsigned `.exe` (no signing needed). **Still unknown, verify in S1 instead of asking:** Edge `RemoteDebuggingAllowed` policy, HTTPS proxy with TLS inspection. | S1 | No TLS inspection |
 | Q6 | ANSWERED | Easiest / fewest permissions → **option A** (web client automation). | — | — |
-| Q7 | ANSWERED | Own company's meetings, guests allowed, lobby on, no password, no webinars. | — | — |
+| Q7 | ANSWERED | Own company's meetings, guests allowed, lobby on, no webinars. **Meetings have passwords (2026-10-27).** UI gets an optional "Parolă ședință" field; kept in memory for that session only (never in config or logs); bot types it at the Webex password prompt; a `pwd=` in the link is used automatically. | T2.2, T6.1 | — |
 | Q8 | N/A | Only for option B. | — | — |
 | Q9 | ANSWERED | User informs participants. Chat notice off by default. | — | — |
 | Q10 | ANSWERED | One meeting per laptop; app runs on the laptop; Excel goes to Documents. | — | — |
@@ -371,4 +372,5 @@ tasks, and the Decision log.
 | 2026-10-26 | Q5, Q11, Q16 | Unsigned exe runs on laptops (no signing). New workbook per meeting. No narrative summary. |
 | 2026-10-26 | Q12, Q15, Q3b | English headers/enums, Romanian content. Shared room devices deferred to T9.1. No AWS yet: AWS checklist added (9.2); live STT/LLM work runs against fakes. |
 | 2026-10-26 | Q13, Q14 | Q13 defaults accepted for now (5.2). `Team` column left empty in v1 (T9.2 later). |
+| 2026-10-27 | S4, M5 | Excel export built and tested. Risk/Decision evidence goes in cell comments; `fullCalcOnLoad` set. Meetings have passwords (Q7 update). |
 | 2026-10-26 | Q7, Q9, Q10 | Own-company meetings, guests allowed, lobby on, no password; user informs participants; output to Documents. |

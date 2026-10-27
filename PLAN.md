@@ -258,10 +258,10 @@ Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user ab
 
 ### M6: UI (Romanian)
 
-- [ ] **T6.1** Main page: link, Parolă ședință (optional, masked, never saved), Proiect (remembered), Nr. întâlnire (auto-suggest last + 1 per project), Întocmit de (remembered), **Pornește** / **Oprește**, state badge, elapsed timer, live transcript tail with speaker names, participant count; on finish **Deschide Excel** and **Deschide folderul**.
-- [ ] **T6.2** Setări: gateway fields + key (write-only, shows "Salvat"), AWS credentials for Transcribe (write-only), region, **Testează conexiunea** (gateway + Transcribe 2 s silence), output folder, retention.
-- [ ] **T6.3** Istoric: past meetings (date, project, no., item counts), open/delete; retention cleanup on startup.
-- [ ] **T6.4** Romanian error catalogue in `ro.json` for every failure path: link invalid, browser not found, policy blocked, lobby timeout, removed by host, no audio, Transcribe auth/region/network, gateway auth/timeout/limit, Excel write failed / file open in Excel. No stack traces in UI.
+- [x] **T6.1** Main page: link, Parolă ședință (optional, masked, never saved), Proiect (remembered), Nr. întâlnire (auto-suggest last + 1 per project), Întocmit de (remembered), **Pornește** / **Oprește**, state badge, elapsed timer, live transcript tail with speaker names, participant count; on finish **Deschide Excel** and **Deschide folderul**.
+- [x] **T6.2** Setări: gateway fields + key (write-only, shows "Salvat"), AWS credentials for Transcribe (write-only), region, **Testează conexiunea** (gateway + Transcribe 2 s silence), output folder, retention.
+- [x] **T6.3** Istoric: past meetings (date, project, no., item counts), open/delete; retention cleanup on startup.
+- [x] **T6.4** Romanian error catalogue in `ro.json` for every failure path: link invalid, browser not found, policy blocked, lobby timeout, removed by host, no audio, Transcribe auth/region/network, gateway auth/timeout/limit, Excel write failed / file open in Excel. No stack traces in UI.
 
 ### M7: Packaging
 

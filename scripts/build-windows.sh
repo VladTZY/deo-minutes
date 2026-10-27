@@ -19,9 +19,12 @@ wails build -clean -platform windows/amd64 -trimpath -ldflags "-s -w -X main.ver
 PKG="build/pkg/DEOMinute"
 rm -rf build/pkg && mkdir -p "$PKG"
 cp build/bin/DEOMinute.exe "$PKG/"
-[ -f README.md ] && cp README.md "$PKG/"
+# The guide as Windows-friendly text (CRLF) so it opens in Notepad.
+sed 's/$/\r/' README.md > "$PKG/CITESTE-MA.txt"
+sed 's/$/\r/' scripts/package/THIRD-PARTY-NOTICES.txt > "$PKG/THIRD-PARTY-NOTICES.txt"
 if [ -f build/dist/models/ggml-whisper-ro.bin ] && [ -f build/dist/whisper/whisper-cli.exe ]; then
   cp -R build/dist/whisper build/dist/models "$PKG/"
+  [ -f build/cache/whisper.cpp/LICENSE ] && sed 's/$/\r/' build/cache/whisper.cpp/LICENSE > "$PKG/whisper/LICENSE-whisper.cpp.txt"
 else
   echo "note: local transcriber not prepared (scripts/prepare-local-stt.sh); DEMO step 2 will report it missing" >&2
 fi

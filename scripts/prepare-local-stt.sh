@@ -94,5 +94,7 @@ if [ ! -x "$CACHE/whisper.cpp/build/bin/whisper-quantize" ]; then
 fi
 DYLD_LIBRARY_PATH="$CACHE/whisper.cpp/build/bin" LD_LIBRARY_PATH="$CACHE/whisper.cpp/build/bin" \
   "$CACHE/whisper.cpp/build/bin/whisper-quantize" "$CACHE/ggml-$MODEL-f16.bin" "$OUT" q5_0 >/dev/null
-shasum -a 256 "$OUT"
+printf 'Model: %s (revision %s), converted to ggml q5_0\r\nSHA-256: %s\r\n' "$REPO" "$REV" \
+  "$(shasum -a 256 "$OUT" | cut -d' ' -f1)" > "$DIST/models/MODEL.txt"
+cat "$DIST/models/MODEL.txt"
 echo "prepared $OUT ($MODEL)"

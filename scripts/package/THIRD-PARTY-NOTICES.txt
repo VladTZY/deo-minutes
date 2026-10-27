@@ -1,0 +1,14 @@
+DEO Minute bundles the following third-party components.
+
+whisper.cpp (whisper\whisper-cli.exe and DLLs), version 1.9.5 / build b5454
+  https://github.com/ggml-org/whisper.cpp
+  MIT License, Copyright (c) 2023-2026 The ggml authors. Full text: whisper\LICENSE-whisper.cpp.txt
+
+Speech model (models\ggml-whisper-ro.bin)
+  Converted to ggml and quantized (q5_0) from one of:
+  - eek/whisper-turbo-ro-en (https://huggingface.co/eek/whisper-turbo-ro-en), MIT License
+  - openai/whisper-large-v3-turbo (https://huggingface.co/openai/whisper-large-v3-turbo), MIT License
+  The file MODEL.txt next to it says which one this package contains.
+
+Silero VAD (models\ggml-silero-v6.2.0.bin)
+  https://huggingface.co/ggml-org/whisper-vad, MIT License (silero-vad by Silero Team)

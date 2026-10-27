@@ -1,7 +1,13 @@
 import {app} from '../../wailsjs/go/models';
 
+export type Mode = 'demo' | 'prod';
+
 export const IDLE_STATUS = {
     state: 'idle',
+    sessionId: '',
+    mode: '',
+    progress: 0,
+    steps: {recorded: false, transcribed: false, generated: false},
     label: '',
     startedAt: 0,
     participants: 0,
@@ -10,19 +16,27 @@ export const IDLE_STATUS = {
     canStop: false,
 } as unknown as app.Status;
 
+// States in which the backend is busy with a session (live or a step).
 const ACTIVE = new Set([
     'starting_browser',
     'connecting',
     'lobby',
     'recording',
     'finishing_transcript',
+    'transcribing',
     'generating',
     'saving',
 ]);
 
-// isActive reports whether a session (live or resumed) is in progress.
 export function isActive(state: string | undefined): boolean {
     return state !== undefined && ACTIVE.has(state);
+}
+
+// Meeting phase: the bot is joining or in the meeting.
+const LIVE = new Set(['starting_browser', 'connecting', 'lobby', 'recording', 'finishing_transcript']);
+
+export function isLive(state: string): boolean {
+    return LIVE.has(state);
 }
 
 // Visual tone of a state: drives badge colour only.
@@ -37,6 +51,7 @@ export function toneOf(state: string): Tone {
         case 'recording':
             return 'recording';
         case 'finishing_transcript':
+        case 'transcribing':
         case 'generating':
         case 'saving':
             return 'processing';
@@ -49,29 +64,78 @@ export function toneOf(state: string): Tone {
     }
 }
 
-// Pipeline phases shown as a progress list. Index of the current phase, -1 if none.
-export const PHASES = ['connecting', 'recording', 'finishing_transcript', 'generating', 'saving'] as const;
+// ---------- The 3-step flow ----------
 
-export function phaseIndex(state: string): number {
+// done: finished. current: running now. next: waits for the user's click.
+// auto: will run by itself (PROD). waiting: not reached yet. error: failed here.
+export type StepState = 'done' | 'current' | 'next' | 'auto' | 'waiting' | 'error';
+export type StepIndex = 0 | 1 | 2;
+export type Flow = [StepState, StepState, StepState];
+
+// stepOfState tells which step a (non-error) state belongs to.
+export function stepOfState(state: string): StepIndex | -1 {
     switch (state) {
         case 'starting_browser':
         case 'connecting':
         case 'lobby':
-            return 0;
         case 'recording':
-            return 1;
+            return 0;
         case 'finishing_transcript':
-            return 2;
+        case 'recorded':
+        case 'transcribing':
+            return 1;
+        case 'transcribed':
         case 'generating':
-            return 3;
         case 'saving':
-            return 4;
-        case 'done':
-            return PHASES.length;
+            return 2;
         default:
             return -1;
     }
 }
+
+// flowOf derives the three step marks. failedAt is the step the session was
+// in when it failed (the backend does not refresh Steps during a PROD run).
+export function flowOf(status: app.Status, setup: boolean, mode: Mode, failedAt: StepIndex | -1): Flow {
+    const auto: StepState = mode === 'prod' ? 'auto' : 'waiting';
+    if (setup) {
+        return ['next', auto, auto];
+    }
+    const prod = (status.mode || mode) === 'prod';
+    const later: StepState = prod ? 'auto' : 'waiting';
+    switch (status.state) {
+        case 'starting_browser':
+        case 'connecting':
+        case 'lobby':
+            return ['current', later, later];
+        case 'recording':
+            return ['current', prod ? 'current' : 'waiting', later];
+        case 'finishing_transcript':
+            return ['done', 'current', later];
+        case 'recorded':
+            return ['done', 'next', 'waiting'];
+        case 'transcribing':
+            return ['done', 'current', 'waiting'];
+        case 'transcribed':
+            return ['done', 'done', 'next'];
+        case 'generating':
+        case 'saving':
+            return ['done', 'done', 'current'];
+        case 'done':
+            return ['done', 'done', 'done'];
+        case 'error': {
+            const s = status.steps;
+            let at: number = failedAt;
+            if (at < 0) {
+                at = s?.transcribed ? 2 : s?.recorded ? 1 : 0;
+            }
+            return [0, 1, 2].map(i => (i < at ? 'done' : i === at ? 'error' : 'waiting')) as Flow;
+        }
+        default:
+            return ['next', auto, auto];
+    }
+}
+
+// ---------- Formatting ----------
 
 export function formatDuration(ms: number): string {
     const total = Math.max(0, Math.floor(ms / 1000));
@@ -82,7 +146,7 @@ export function formatDuration(ms: number): string {
     return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
-// A transcript event line looks like "[HH:MM:SS] Nume: text".
+// A transcript line looks like "[HH:MM:SS] Nume: text".
 export interface TranscriptLine {
     time: string;
     speaker: string;

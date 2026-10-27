@@ -1,25 +1,56 @@
-import {FormEvent, useEffect, useRef, useState} from 'react';
-import {Defaults, OpenPath, Start, Stop, SuggestMeetingNo} from '../../wailsjs/go/app/App';
+import {FormEvent, ReactNode, useEffect, useRef, useState} from 'react';
+import {
+    Defaults,
+    Generate,
+    ImportAudio,
+    OpenPath,
+    Start,
+    Stop,
+    SuggestMeetingNo,
+    Transcribe,
+    Transcript,
+} from '../../wailsjs/go/app/App';
 import {app} from '../../wailsjs/go/models';
 import {t} from '../lib/i18n';
 import {errorText} from '../lib/errors';
-import {formatDuration, isActive, parseLine, phaseIndex, toneOf} from '../lib/status';
+import {
+    Flow,
+    flowOf,
+    formatDuration,
+    isActive,
+    isLive,
+    Mode,
+    parseLine,
+    StepIndex,
+    stepOfState,
+    toneOf,
+} from '../lib/status';
+import {aiReady, Check, checksFor, localReady, Readiness, SettingsSection} from '../lib/readiness';
 
 interface Props {
     status: app.Status;
     lines: string[];
-    onStarted: () => void;
+    mode: Mode;
+    ready: Readiness;
+    onClearLines: () => void;
     onShowHistory: () => void;
+    onOpenSettings: (s: SettingsSection, field?: string) => void;
 }
 
-export default function MeetingPage({status, lines, onStarted, onShowHistory}: Props) {
+type Pending = 'start' | 'stop' | 'import' | 'transcribe' | 'generate' | null;
+
+export default function MeetingPage(props: Props) {
+    const {status, lines, mode, ready, onClearLines, onShowHistory, onOpenSettings} = props;
+
     const [link, setLink] = useState('');
     const [password, setPassword] = useState('');
     const [project, setProject] = useState('');
     const [meetingNo, setMeetingNo] = useState('');
     const [preparedBy, setPreparedBy] = useState('');
-    const [pending, setPending] = useState<'start' | 'stop' | null>(null);
-    const [formError, setFormError] = useState('');
+    const [pending, setPending] = useState<Pending>(null);
+    const [actionError, setActionError] = useState('');
+    // The session the user closed with "Ședință nouă": its result stays in Istoric.
+    const [dismissed, setDismissed] = useState<string | null>(null);
 
     const active = isActive(status.state);
 
@@ -33,8 +64,7 @@ export default function MeetingPage({status, lines, onStarted, onShowHistory}: P
             .catch(() => undefined);
     }, []);
 
-    // Suggest the next meeting number for the typed project (debounced; stale
-    // answers are dropped).
+    // Suggest the next meeting number for the typed project (debounced).
     const userEditedProject = useRef(false);
     useEffect(() => {
         if (!userEditedProject.current) {
@@ -56,11 +86,20 @@ export default function MeetingPage({status, lines, onStarted, onShowHistory}: P
         };
     }, [project]);
 
-    // After a finished meeting the next number moves on; the password was only
-    // needed to join and is dropped.
+    // Remember which step was running, to show where a failure happened
+    // (the backend does not refresh Steps during a PROD run). Idempotent, so
+    // updating the ref during render is safe.
+    const lastStep = useRef<StepIndex | -1>(-1);
+    const step = stepOfState(status.state);
+    if (step >= 0) {
+        lastStep.current = step;
+    }
+    const failedAt: StepIndex | -1 = status.state === 'error' ? lastStep.current : -1;
+
     const prevState = useRef(status.state);
     useEffect(() => {
         if (status.state === 'done' && prevState.current !== 'done') {
+            // The password was only needed to join; the next number moves on.
             setPassword('');
             SuggestMeetingNo(project)
                 .then(n => n > 0 && setMeetingNo(String(n)))
@@ -69,47 +108,230 @@ export default function MeetingPage({status, lines, onStarted, onShowHistory}: P
         prevState.current = status.state;
     }, [status.state, project]);
 
-    async function onSubmit(e: FormEvent) {
-        e.preventDefault();
-        if (active || pending) {
+    // Any running session (a new one, or a step started from Istoric) brings
+    // the flow back after "Ședință nouă".
+    useEffect(() => {
+        if (active && dismissed !== null) {
+            setDismissed(null);
+        }
+    }, [active, dismissed]);
+
+    const setup = status.state === 'idle' || (!active && dismissed !== null && dismissed === status.sessionId);
+    const flow = flowOf(status, setup, mode, failedAt);
+
+    async function act(kind: Exclude<Pending, null>, fn: () => Promise<void>) {
+        if (pending) {
             return;
         }
-        setFormError('');
-        setPending('start');
-        const req = app.StartRequest.createFrom({
-            link: link.trim(),
-            password,
-            project: project.trim(),
-            meetingNo: Number.parseInt(meetingNo, 10) || 0,
-            preparedBy: preparedBy.trim(),
-        });
+        setActionError('');
+        setPending(kind);
         try {
-            onStarted();
-            await Start(req);
-        } catch (err) {
-            setFormError(errorText(err));
+            await fn();
+        } catch (e) {
+            setActionError(errorText(e));
         } finally {
             setPending(null);
         }
     }
 
-    async function onStop() {
-        setPending('stop');
-        try {
-            await Stop();
-        } catch (err) {
-            setFormError(errorText(err));
-        } finally {
-            setPending(null);
+    function onStart(e: FormEvent) {
+        e.preventDefault();
+        if (active) {
+            return;
         }
+        void act('start', async () => {
+            onClearLines();
+            await Start(app.StartRequest.createFrom({
+                link: link.trim(),
+                password,
+                project: project.trim(),
+                meetingNo: Number.parseInt(meetingNo, 10) || 0,
+                preparedBy: preparedBy.trim(),
+            }));
+            setDismissed(null);
+        });
     }
+
+    const onImport = () => act('import', async () => {
+        const id = await ImportAudio(project.trim(), Number.parseInt(meetingNo, 10) || 0);
+        if (id) {
+            onClearLines();
+            setDismissed(null);
+        }
+    });
+
+    const onStop = () => act('stop', () => Stop());
+
+    const onTranscribe = () => act('transcribe', async () => {
+        onClearLines();
+        await Transcribe(status.sessionId);
+    });
+
+    const onGenerate = () => act('generate', () => Generate(status.sessionId));
+
+    function onNew() {
+        setActionError('');
+        setDismissed(status.sessionId || null);
+        onClearLines();
+    }
+
+    const checks = checksFor(ready, mode);
+    const blocked = checks !== null && checks.some(c => !c.ok);
+
+    let body: ReactNode;
+    if (setup) {
+        body = (
+            <SetupView
+                mode={mode}
+                checks={checks}
+                blocked={blocked}
+                pending={pending}
+                onSubmit={onStart}
+                onImport={onImport}
+                onOpenSettings={onOpenSettings}
+                fields={{link, password, project, meetingNo, preparedBy}}
+                set={{
+                    link: setLink,
+                    password: setPassword,
+                    project: (v: string) => {
+                        userEditedProject.current = true;
+                        setProject(v);
+                    },
+                    meetingNo: setMeetingNo,
+                    preparedBy: setPreparedBy,
+                }}
+            />
+        );
+    } else if (isLive(status.state)) {
+        body = <LiveView status={status} lines={lines} pending={pending} onStop={onStop}/>;
+    } else if (status.state === 'recorded') {
+        body = (
+            <RecordedView
+                localOk={localReady(ready.local)}
+                pending={pending}
+                onTranscribe={onTranscribe}
+                onNew={onNew}
+                onOpenSettings={onOpenSettings}
+            />
+        );
+    } else if (status.state === 'transcribing') {
+        body = <TranscribingView status={status} pending={pending} onStop={onStop}/>;
+    } else if (status.state === 'transcribed') {
+        body = (
+            <TranscribedView
+                sessionId={status.sessionId}
+                mode={mode}
+                aiOk={aiReady(ready, mode)}
+                pending={pending}
+                onGenerate={onGenerate}
+                onNew={onNew}
+                onOpenSettings={onOpenSettings}
+            />
+        );
+    } else if (status.state === 'generating' || status.state === 'saving') {
+        body = <GeneratingView status={status}/>;
+    } else if (status.state === 'done') {
+        body = <DoneView result={status.result} onNew={onNew}/>;
+    } else {
+        body = (
+            <ErrorView
+                status={status}
+                flow={flow}
+                mode={mode}
+                localOk={localReady(ready.local)}
+                pending={pending}
+                onTranscribe={onTranscribe}
+                onGenerate={onGenerate}
+                onNew={onNew}
+                onShowHistory={onShowHistory}
+            />
+        );
+    }
+
+    const warnings = setup ? [] : status.warnings ?? [];
 
     return (
-        <div className="meeting">
-            <section className="panel meeting-form" aria-labelledby="form-title">
+        <div className="page meeting">
+            <Stepper flow={flow} prod={(setup ? mode : status.mode || mode) === 'prod'}/>
+            {body}
+            {actionError && <p className="msg msg-err action-error" role="alert">{actionError}</p>}
+            {warnings.length > 0 && (
+                <div className="warnings" role="status">
+                    <h2 className="sub-title">{t("main.warnings")}</h2>
+                    <ul>
+                        {warnings.map(w => <li key={w}>{w}</li>)}
+                    </ul>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ---------- Stepper ----------
+
+function Stepper({flow, prod}: { flow: Flow; prod: boolean }) {
+    const titles = [t("step.record"), t("step.transcribe"), t("step.generate")];
+    const word = (s: string) => {
+        switch (s) {
+            case 'done':
+                return t("step.state.done");
+            case 'current':
+                return t("step.state.current");
+            case 'next':
+                return t("step.state.next");
+            case 'auto':
+                return t("step.state.auto");
+            case 'error':
+                return t("step.state.error");
+            default:
+                return prod ? t("step.state.auto") : t("step.state.waiting");
+        }
+    };
+    const here = flow.findIndex(s => s === 'current' || s === 'next' || s === 'error');
+    return (
+        <ol className="stepper" aria-label={t("step.label")}>
+            {flow.map((s, i) => (
+                <li key={i} className={`step step-${s}`} aria-current={i === here ? 'step' : undefined}>
+                    <span className="step-mark" aria-hidden="true">{s === 'done' ? '✓' : s === 'error' ? '!' : i + 1}</span>
+                    <span className="step-text">
+                        <span className="step-title">{titles[i]}</span>
+                        <span className="step-state">{word(s)}</span>
+                    </span>
+                </li>
+            ))}
+        </ol>
+    );
+}
+
+// ---------- Step 1: setup ----------
+
+interface Fields {
+    link: string;
+    password: string;
+    project: string;
+    meetingNo: string;
+    preparedBy: string;
+}
+
+interface SetupProps {
+    mode: Mode;
+    checks: Check[] | null;
+    blocked: boolean;
+    pending: Pending;
+    fields: Fields;
+    set: { [K in keyof Fields]: (v: string) => void };
+    onSubmit: (e: FormEvent) => void;
+    onImport: () => void;
+    onOpenSettings: (s: SettingsSection, field?: string) => void;
+}
+
+function SetupView({mode, checks, blocked, pending, fields, set, onSubmit, onImport, onOpenSettings}: SetupProps) {
+    return (
+        <div className="setup">
+            <section className="panel setup-form" aria-labelledby="form-title">
                 <h1 id="form-title" className="panel-title">{t("main.form.title")}</h1>
                 <form onSubmit={onSubmit} noValidate>
-                    <fieldset disabled={active} className="fields">
+                    <div className="fields">
                         <div className="field">
                             <label htmlFor="link">{t("main.link")}</label>
                             <input
@@ -120,36 +342,35 @@ export default function MeetingPage({status, lines, onStarted, onShowHistory}: P
                                 autoComplete="off"
                                 spellCheck={false}
                                 placeholder={t("main.link.placeholder")}
-                                value={link}
-                                onChange={e => setLink(e.target.value)}
+                                value={fields.link}
+                                onChange={e => set.link(e.target.value)}
                             />
                         </div>
-                        <div className="field">
-                            <label htmlFor="password">{t("main.password")}</label>
-                            <input
-                                id="password"
-                                name="password"
-                                type="password"
-                                autoComplete="off"
-                                aria-describedby="password-hint"
-                                value={password}
-                                onChange={e => setPassword(e.target.value)}
-                            />
-                            <p id="password-hint" className="hint">{t("main.password.hint")}</p>
-                        </div>
-                        <div className="field">
-                            <label htmlFor="project">{t("main.project")}</label>
-                            <input
-                                id="project"
-                                name="project"
-                                type="text"
-                                autoComplete="off"
-                                value={project}
-                                onChange={e => {
-                                    userEditedProject.current = true;
-                                    setProject(e.target.value);
-                                }}
-                            />
+                        <div className="field-row">
+                            <div className="field">
+                                <label htmlFor="password">{t("main.password.optional")}</label>
+                                <input
+                                    id="password"
+                                    name="password"
+                                    type="password"
+                                    autoComplete="off"
+                                    aria-describedby="password-hint"
+                                    value={fields.password}
+                                    onChange={e => set.password(e.target.value)}
+                                />
+                                <p id="password-hint" className="hint">{t("main.password.hint")}</p>
+                            </div>
+                            <div className="field">
+                                <label htmlFor="project">{t("main.project")}</label>
+                                <input
+                                    id="project"
+                                    name="project"
+                                    type="text"
+                                    autoComplete="off"
+                                    value={fields.project}
+                                    onChange={e => set.project(e.target.value)}
+                                />
+                            </div>
                         </div>
                         <div className="field-row">
                             <div className="field field-narrow">
@@ -161,8 +382,8 @@ export default function MeetingPage({status, lines, onStarted, onShowHistory}: P
                                     inputMode="numeric"
                                     min={1}
                                     step={1}
-                                    value={meetingNo}
-                                    onChange={e => setMeetingNo(e.target.value)}
+                                    value={fields.meetingNo}
+                                    onChange={e => set.meetingNo(e.target.value)}
                                 />
                             </div>
                             <div className="field">
@@ -171,47 +392,91 @@ export default function MeetingPage({status, lines, onStarted, onShowHistory}: P
                                     id="preparedBy"
                                     name="preparedBy"
                                     type="text"
-                                    autoComplete="off"
-                                    value={preparedBy}
-                                    onChange={e => setPreparedBy(e.target.value)}
+                                    autoComplete="name"
+                                    value={fields.preparedBy}
+                                    onChange={e => set.preparedBy(e.target.value)}
                                 />
                             </div>
                         </div>
-                    </fieldset>
-                    <div className="form-actions">
-                        <button type="submit" className="btn btn-primary" disabled={active || pending !== null}>
+                    </div>
+                    <div className="primary-row">
+                        <button
+                            type="submit"
+                            className="btn btn-primary btn-lg"
+                            disabled={pending !== null || blocked}
+                            aria-describedby="start-hint"
+                        >
                             {pending === 'start' ? t("main.starting") : t("main.start")}
                         </button>
-                        <button
-                            type="button"
-                            className="btn btn-danger"
-                            disabled={!status.canStop || pending !== null}
-                            onClick={onStop}
-                        >
-                            {t("main.stop")}
-                        </button>
+                        <p id="start-hint" className="hint">
+                            {blocked ? t("main.start.blocked") : mode === 'demo' ? t("main.start.hint.demo") : t("main.start.hint.prod")}
+                        </p>
                     </div>
-                    {formError && <p className="msg msg-err" role="alert">{formError}</p>}
                 </form>
             </section>
 
-            <LivePanel status={status} lines={lines} onShowHistory={onShowHistory}/>
+            <aside className="setup-side">
+                <section className="panel side-panel" aria-labelledby="checks-title">
+                    <h2 id="checks-title" className="panel-title">{t("ready.title")}</h2>
+                    {checks === null ? (
+                        <p className="muted" role="status">{t("ready.loading")}</p>
+                    ) : (
+                        <ul className="checks">
+                            {checks.map(c => (
+                                <li key={c.id} className={c.ok ? 'check check-ok' : 'check check-missing'}>
+                                    <span className="check-mark" aria-hidden="true">{c.ok ? '✓' : '!'}</span>
+                                    <span className="check-body">
+                                        <span className="check-label">{c.label}</span>
+                                        <span className="check-detail">{c.detail}</span>
+                                        {!c.ok && (
+                                            <button type="button" className="link-btn" onClick={() => onOpenSettings(c.fix, c.field)}>
+                                                {t("ready.fix")}
+                                            </button>
+                                        )}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </section>
+
+                <section className="panel side-panel" aria-labelledby="import-title">
+                    <h2 id="import-title" className="panel-title">{t("import.heading")}</h2>
+                    <p className="side-text">{t("import.desc")}</p>
+                    <button type="button" className="btn btn-secondary" disabled={pending !== null} onClick={onImport}>
+                        {pending === 'import' ? t("import.busy") : t("import.button")}
+                    </button>
+                </section>
+            </aside>
         </div>
     );
 }
 
-function LivePanel({status, lines, onShowHistory}: { status: app.Status; lines: string[]; onShowHistory: () => void }) {
-    const tone = toneOf(status.state);
-    const label = status.label || t("state.idle");
-    const warnings = status.warnings ?? [];
-    const showPhases = status.state !== 'idle' && status.state !== 'error';
+// ---------- Step 1 running: in the meeting ----------
 
+function LiveView({status, lines, pending, onStop}: {
+    status: app.Status;
+    lines: string[];
+    pending: Pending;
+    onStop: () => void;
+}) {
+    const prod = status.mode === 'prod';
+    const tone = toneOf(status.state);
+    let note = '';
+    if (status.state === 'recording') {
+        note = prod ? t("live.recording.prod") : t("live.recording.demo");
+    } else if (status.state === 'finishing_transcript') {
+        note = t("live.finishing");
+    } else {
+        note = t("live.joining");
+    }
     return (
-        <section className="panel live" aria-labelledby="live-state">
-            <div className="live-head">
+        <section className="panel stage" aria-labelledby="live-title">
+            <h1 id="live-title" className="sr-only">{t("step.record")}</h1>
+            <div className="stage-head">
                 <div className={`state state-${tone}`} id="live-state" role="status">
                     {tone === 'recording' && <span className="rec-mark" aria-hidden="true"/>}
-                    <span>{label}</span>
+                    <span>{status.label}</span>
                 </div>
                 <dl className="metrics">
                     <div className="metric">
@@ -222,39 +487,20 @@ function LivePanel({status, lines, onShowHistory}: { status: app.Status; lines: 
                     </div>
                     <div className="metric">
                         <dt>{t("main.participants")}</dt>
-                        <dd className="metric-value">{status.participants || 0}</dd>
+                        <dd className="metric-value tabular">{status.participants || 0}</dd>
                     </div>
                 </dl>
             </div>
-
-            {showPhases && <Phases state={status.state}/>}
-
-            {status.state === 'idle' && <p className="live-note">{t("main.idle.hint")}</p>}
-            {status.state === 'generating' && <p className="live-note">{t("main.generating.hint")}</p>}
-
-            {status.state === 'error' && (
-                <div className="alert alert-err" role="alert">
-                    <p className="alert-title">{t("main.error.title")}</p>
-                    <p>{status.error || t("err.unexpected")}</p>
-                    <p className="alert-hint">{t("main.error.resumeHint")}</p>
-                    <button type="button" className="btn btn-secondary" onClick={onShowHistory}>
-                        {t("main.goHistory")}
+            <p className="stage-note">{note}</p>
+            {status.canStop && (
+                <div className="primary-row">
+                    <button type="button" className="btn btn-danger btn-lg" disabled={pending !== null} onClick={onStop}>
+                        {pending === 'stop' ? t("main.stopping") : t("main.stop")}
                     </button>
+                    <p className="hint">{t("main.stop.hint")}</p>
                 </div>
             )}
-
-            {status.state === 'done' && status.result && <DoneBlock result={status.result}/>}
-
-            {warnings.length > 0 && (
-                <div className="warnings">
-                    <h2 className="sub-title">{t("main.warnings")}</h2>
-                    <ul>
-                        {warnings.map(w => <li key={w}>{w}</li>)}
-                    </ul>
-                </div>
-            )}
-
-            <Transcript lines={lines}/>
+            {(prod || lines.length > 0) && <TranscriptBox lines={lines} title={t("main.transcript")} follow/>}
         </section>
     );
 }
@@ -273,32 +519,160 @@ function Elapsed({startedAt, ticking}: { startedAt: number; ticking: boolean }) 
     return <span className="tabular">{value}</span>;
 }
 
-function Phases({state}: { state: string }) {
-    const current = phaseIndex(state);
-    const labels = [
-        t("state.connecting"),
-        t("state.recording"),
-        t("state.finishing_transcript"),
-        t("state.generating"),
-        t("state.saving"),
-    ];
+// ---------- Step 2 (DEMO) ----------
+
+function RecordedView({localOk, pending, onTranscribe, onNew, onOpenSettings}: {
+    localOk: boolean;
+    pending: Pending;
+    onTranscribe: () => void;
+    onNew: () => void;
+    onOpenSettings: (s: SettingsSection, field?: string) => void;
+}) {
     return (
-        <ol className="phases" aria-label={t("main.phases")}>
-            {labels.map((l, i) => {
-                const cls = i < current ? 'phase phase-done' : i === current ? 'phase phase-current' : 'phase';
-                return (
-                    <li key={l} className={cls} aria-current={i === current ? 'step' : undefined}>
-                        {l}
-                    </li>
-                );
-            })}
-        </ol>
+        <section className="panel stage" aria-labelledby="stage-title">
+            <h1 id="stage-title" className="stage-title">{t("recorded.title")}</h1>
+            <p className="stage-note">{t("recorded.desc")}</p>
+            {!localOk && (
+                <Missing text={t("ready.local.missing")} onFix={() => onOpenSettings('demo')}/>
+            )}
+            <div className="primary-row">
+                <button type="button" className="btn btn-primary btn-lg" disabled={pending !== null || !localOk}
+                        onClick={onTranscribe}>
+                    {pending === 'transcribe' ? t("main.starting") : t("recorded.action")}
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={onNew}>{t("main.new")}</button>
+            </div>
+        </section>
     );
 }
 
-function DoneBlock({result}: { result: app.Result }) {
+function TranscribingView({status, pending, onStop}: { status: app.Status; pending: Pending; onStop: () => void }) {
+    const pct = Math.round(Math.min(1, Math.max(0, status.progress || 0)) * 100);
+    return (
+        <section className="panel stage" aria-labelledby="stage-title">
+            <h1 id="stage-title" className="stage-title">{t("transcribing.title")}</h1>
+            <p className="stage-note">{t("transcribing.desc")}</p>
+            <div className="progress-wrap">
+                <div
+                    className="progress"
+                    role="progressbar"
+                    aria-labelledby="stage-title"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={pct}
+                >
+                    <span className="progress-fill" style={{transform: `scaleX(${pct / 100})`}}/>
+                </div>
+                <span className="progress-pct tabular" aria-hidden="true">{t("transcribing.pct", pct)}</span>
+            </div>
+            {status.canStop && (
+                <div className="primary-row">
+                    <button type="button" className="btn btn-secondary" disabled={pending !== null} onClick={onStop}>
+                        {pending === 'stop' ? t("main.stopping") : t("transcribing.stop")}
+                    </button>
+                    <p className="hint">{t("transcribing.stop.hint")}</p>
+                </div>
+            )}
+        </section>
+    );
+}
+
+// ---------- Step 3 ----------
+
+function TranscribedView({sessionId, mode, aiOk, pending, onGenerate, onNew, onOpenSettings}: {
+    sessionId: string;
+    mode: Mode;
+    aiOk: boolean;
+    pending: Pending;
+    onGenerate: () => void;
+    onNew: () => void;
+    onOpenSettings: (s: SettingsSection, field?: string) => void;
+}) {
+    const [preview, setPreview] = useState<string[] | null>(null);
     const [err, setErr] = useState('');
-    const c = result.counts;
+
+    useEffect(() => {
+        let stale = false;
+        setPreview(null);
+        setErr('');
+        if (!sessionId) {
+            return;
+        }
+        Transcript(sessionId)
+            .then(l => !stale && setPreview(l ?? []))
+            .catch(e => {
+                if (!stale) {
+                    setPreview([]);
+                    setErr(errorText(e));
+                }
+            });
+        return () => {
+            stale = true;
+        };
+    }, [sessionId]);
+
+    return (
+        <section className="panel stage" aria-labelledby="stage-title">
+            <div className="stage-split">
+                <div>
+                    <h1 id="stage-title" className="stage-title">{t("transcribed.title")}</h1>
+                    <p className="stage-note">
+                        {mode === 'demo' ? t("transcribed.desc.demo") : t("transcribed.desc.prod")}
+                    </p>
+                </div>
+                <div className="primary-row primary-row-end">
+                    <button type="button" className="btn btn-ghost" onClick={onNew}>{t("main.new")}</button>
+                    <button type="button" className="btn btn-primary btn-lg" disabled={pending !== null || !aiOk}
+                            onClick={onGenerate}>
+                        {pending === 'generate' ? t("main.starting") : t("transcribed.action")}
+                    </button>
+                </div>
+            </div>
+            {!aiOk && (
+                <Missing
+                    text={mode === 'demo' ? t("ready.openrouter.missing") : t("ready.ai.missing")}
+                    onFix={() => onOpenSettings(mode, mode === 'demo' ? 'or-key' : 'gw-model')}
+                />
+            )}
+            {err && <p className="msg msg-err" role="alert">{err}</p>}
+            {preview === null ? (
+                <p className="muted" role="status">{t("transcribed.loading")}</p>
+            ) : (
+                <TranscriptBox
+                    lines={preview}
+                    title={t("transcribed.preview", preview.length)}
+                    tall
+                />
+            )}
+        </section>
+    );
+}
+
+function GeneratingView({status}: { status: app.Status }) {
+    const saving = status.state === 'saving';
+    return (
+        <section className="panel stage" aria-labelledby="stage-title">
+            <div role="status">
+                <h1 id="stage-title" className="stage-title">{status.label}</h1>
+            </div>
+            <p className="stage-note">{t("generating.desc")}</p>
+            <ol className="substeps">
+                <li className={saving ? 'substep substep-done' : 'substep substep-current'}>
+                    <span className="substep-mark" aria-hidden="true">{saving ? '✓' : '1'}</span>
+                    {t("generating.ai")}
+                </li>
+                <li className={saving ? 'substep substep-current' : 'substep'}>
+                    <span className="substep-mark" aria-hidden="true">2</span>
+                    {t("generating.excel")}
+                </li>
+            </ol>
+        </section>
+    );
+}
+
+function DoneView({result, onNew}: { result?: app.Result; onNew: () => void }) {
+    const [err, setErr] = useState('');
+    const c = result?.counts;
     const counts = [
         {label: t("main.count.actions"), n: c?.actions ?? 0},
         {label: t("main.count.decisions"), n: c?.decisions ?? 0},
@@ -317,8 +691,23 @@ function DoneBlock({result}: { result: app.Result }) {
     }
 
     return (
-        <div className="done">
-            <p className="done-title">{t("main.done.title")}</p>
+        <section className="panel stage stage-done" aria-labelledby="stage-title">
+            <div className="stage-split">
+                <h1 id="stage-title" className="stage-title">{t("main.done.title")}</h1>
+                <div className="primary-row primary-row-end">
+                    <button type="button" className="btn btn-ghost" onClick={onNew}>{t("main.new")}</button>
+                    {result?.folder && (
+                        <button type="button" className="btn btn-secondary" onClick={() => open(result.folder)}>
+                            {t("main.openFolder")}
+                        </button>
+                    )}
+                    {result?.excelPath && (
+                        <button type="button" className="btn btn-primary btn-lg" onClick={() => open(result.excelPath)}>
+                            {t("main.openExcel")}
+                        </button>
+                    )}
+                </div>
+            </div>
             <dl className="counts">
                 {counts.map(x => (
                     <div key={x.label} className="count">
@@ -327,34 +716,79 @@ function DoneBlock({result}: { result: app.Result }) {
                     </div>
                 ))}
             </dl>
-            <div className="done-actions">
-                {result.excelPath && (
-                    <button type="button" className="btn btn-primary" onClick={() => open(result.excelPath)}>
-                        {t("main.openExcel")}
-                    </button>
-                )}
-                {result.folder && (
-                    <button type="button" className="btn btn-secondary" onClick={() => open(result.folder)}>
-                        {t("main.openFolder")}
-                    </button>
-                )}
-            </div>
             {err && <p className="msg msg-err" role="alert">{err}</p>}
+        </section>
+    );
+}
+
+function ErrorView({status, flow, mode, localOk, pending, onTranscribe, onGenerate, onNew, onShowHistory}: {
+    status: app.Status;
+    flow: Flow;
+    mode: Mode;
+    localOk: boolean;
+    pending: Pending;
+    onTranscribe: () => void;
+    onGenerate: () => void;
+    onNew: () => void;
+    onShowHistory: () => void;
+}) {
+    const at = flow.indexOf('error');
+    const steps = status.steps;
+    // Retry the failed step when its input exists.
+    const canGenerate = !!status.sessionId && at === 2;
+    const canTranscribe = !!status.sessionId && at === 1 && (steps?.recorded ?? false) && localOk
+        && (mode === 'demo' || status.mode === 'demo');
+    const stepName = [t("step.record"), t("step.transcribe"), t("step.generate")][Math.max(0, at)];
+    return (
+        <section className="panel stage" aria-labelledby="stage-title">
+            <div className="alert alert-err" role="alert">
+                <h1 id="stage-title" className="alert-title">{t("error.title", stepName)}</h1>
+                <p>{status.error || t("err.unexpected")}</p>
+            </div>
+            <div className="primary-row">
+                {canGenerate && (
+                    <button type="button" className="btn btn-primary btn-lg" disabled={pending !== null} onClick={onGenerate}>
+                        {t("error.retryGenerate")}
+                    </button>
+                )}
+                {canTranscribe && (
+                    <button type="button" className="btn btn-primary btn-lg" disabled={pending !== null} onClick={onTranscribe}>
+                        {t("error.retryTranscribe")}
+                    </button>
+                )}
+                <button type="button" className={canGenerate || canTranscribe ? 'btn btn-secondary' : 'btn btn-primary btn-lg'}
+                        onClick={onNew}>
+                    {at === 0 ? t("error.retryStart") : t("main.new")}
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={onShowHistory}>{t("main.goHistory")}</button>
+            </div>
+            <p className="hint">{t("error.hint")}</p>
+        </section>
+    );
+}
+
+// ---------- Shared bits ----------
+
+function Missing({text, onFix}: { text: string; onFix: () => void }) {
+    return (
+        <div className="alert alert-warn" role="alert">
+            <p>{text}</p>
+            <button type="button" className="link-btn" onClick={onFix}>{t("ready.fix")}</button>
         </div>
     );
 }
 
-function Transcript({lines}: { lines: string[] }) {
+function TranscriptBox({lines, title, follow, tall}: { lines: string[]; title: string; follow?: boolean; tall?: boolean }) {
     const box = useRef<HTMLDivElement>(null);
     const pinned = useRef(true);
 
     // Follow new lines unless the user scrolled up to read.
     useEffect(() => {
         const el = box.current;
-        if (el && pinned.current) {
+        if (follow && el && pinned.current) {
             el.scrollTop = el.scrollHeight;
         }
-    }, [lines]);
+    }, [lines, follow]);
 
     function onScroll() {
         const el = box.current;
@@ -365,10 +799,10 @@ function Transcript({lines}: { lines: string[] }) {
 
     return (
         <div className="transcript">
-            <h2 className="sub-title" id="transcript-title">{t("main.transcript")}</h2>
+            <h2 className="sub-title" id="transcript-title">{title}</h2>
             <div
                 ref={box}
-                className="transcript-box"
+                className={tall ? 'transcript-box transcript-tall' : 'transcript-box'}
                 role="log"
                 aria-labelledby="transcript-title"
                 tabIndex={0}
@@ -381,8 +815,8 @@ function Transcript({lines}: { lines: string[] }) {
                         const l = parseLine(raw);
                         return (
                             <p key={i} className="line">
-                                {l.time && <span className="line-time tabular">{l.time}</span>}
-                                {l.speaker && <span className="line-speaker">{l.speaker}</span>}
+                                <span className="line-time tabular">{l.time}</span>
+                                <span className="line-speaker">{l.speaker}</span>
                                 <span className="line-text">{l.text}</span>
                             </p>
                         );

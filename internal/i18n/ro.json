@@ -154,6 +154,7 @@
   "err.unexpected": "A apărut o eroare neașteptată. Detalii în jurnal.",
 
   "warn.recordsDropped": "{0} înregistrări au fost eliminate deoarece citatul nu a fost găsit în transcriere.",
+  "warn.maxLength": "Ședința a depășit 5 ore; înregistrarea s-a oprit automat.",
   "warn.transcriptEmpty": "Transcrierea este goală; minuta nu a fost generată.",
 
   "speaker.unknown": "Participant necunoscut"

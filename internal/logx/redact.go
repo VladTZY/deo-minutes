@@ -1,6 +1,7 @@
 package logx
 
 import (
+	"errors"
 	"log/slog"
 	"net/url"
 	"regexp"
@@ -61,7 +62,12 @@ func replaceAttr(_ []string, a slog.Attr) slog.Attr {
 		return slog.String(a.Key, String(a.Value.String()))
 	case slog.KindAny:
 		if err, ok := a.Value.Any().(error); ok {
-			return slog.String(a.Key, String(err.Error()))
+			msg := err.Error()
+			// A user-facing error hides its cause; keep the cause in the log.
+			if cause := errors.Unwrap(err); cause != nil && !strings.Contains(msg, cause.Error()) {
+				msg += " | cauza: " + cause.Error()
+			}
+			return slog.String(a.Key, String(msg))
 		}
 	}
 	return a

@@ -14,7 +14,7 @@ import (
 
 const (
 	evidenceWindow = 90 * time.Second // quote must be near the time the model gave
-	minTokenMatch  = 0.85             // share of quote words that must appear in order-insensitive match
+	minQuoteWords  = 4
 )
 
 // Report counts what validation removed or fixed.
@@ -39,8 +39,7 @@ func normalize(s string) string {
 
 type normLine struct {
 	Line
-	norm  string
-	words map[string]bool
+	norm string
 }
 
 type checker struct{ lines []normLine }
@@ -48,52 +47,42 @@ type checker struct{ lines []normLine }
 func newChecker(t Transcript) *checker {
 	c := &checker{lines: make([]normLine, len(t))}
 	for i, l := range t {
-		n := normalize(l.Text)
-		ws := map[string]bool{}
-		for _, w := range strings.Fields(n) {
-			ws[w] = true
-		}
-		c.lines[i] = normLine{Line: l, norm: n, words: ws}
+		c.lines[i] = normLine{Line: l, norm: normalize(l.Text)}
 	}
 	return c
 }
 
 // verify finds the transcript line backing e and returns e corrected to that
 // line's time and speaker, or false when the quote is not in the transcript.
+// The quote must appear word for word (after normalizing case, diacritics and
+// punctuation) in one line within ±evidenceWindow of its time, and be at least
+// minQuoteWords long unless it is the whole line: a short or reworded quote
+// would "prove" almost anything.
 func (c *checker) verify(e Evidence) (Evidence, bool) {
 	q := normalize(e.Quote)
-	if q == "" {
+	at, ok := ParseClock(e.At)
+	if q == "" || !ok {
 		return e, false
 	}
-	at, ok := ParseClock(e.At)
-	var best *normLine
-	bestScore := 0.0
 	for i := range c.lines {
 		l := &c.lines[i]
-		if ok && (l.At < at-evidenceWindow || l.At > at+evidenceWindow) {
+		if l.At < at-evidenceWindow || l.At > at+evidenceWindow {
 			continue
 		}
-		score := 0.0
-		if strings.Contains(l.norm, q) {
-			score = 1
-		} else {
-			qw := strings.Fields(q)
-			hit := 0
-			for _, w := range qw {
-				if l.words[w] {
-					hit++
-				}
-			}
-			score = float64(hit) / float64(len(qw))
+		if !containsWords(l.norm, q) {
+			continue
 		}
-		if score > bestScore || score == bestScore && best != nil && strings.EqualFold(l.Speaker, e.Speaker) && !strings.EqualFold(best.Speaker, e.Speaker) {
-			best, bestScore = l, score
+		if len(strings.Fields(q)) < minQuoteWords && q != l.norm {
+			continue
 		}
+		return Evidence{At: Clock(l.At), Speaker: l.Speaker, Quote: e.Quote}, true
 	}
-	if best == nil || bestScore < minTokenMatch {
-		return e, false
-	}
-	return Evidence{At: Clock(best.At), Speaker: best.Speaker, Quote: e.Quote}, true
+	return e, false
+}
+
+// containsWords reports whether q occurs in s on word boundaries.
+func containsWords(s, q string) bool {
+	return strings.Contains(" "+s+" ", " "+q+" ")
 }
 
 // verifyAll keeps verified evidence (max 3) and reports whether any survived.

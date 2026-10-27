@@ -173,8 +173,13 @@ func (a *App) OpenPath(path string) error {
 	if err != nil || !within(clean, out) && !within(clean, config.AppDataDir()) {
 		return i18n.Errorf(nil, "err.unexpected")
 	}
-	if _, err := os.Stat(clean); err != nil {
+	st, err := os.Stat(clean)
+	if err != nil {
 		return i18n.Errorf(err, "err.unexpected")
+	}
+	// Only folders and the documents the app writes: never launch programs.
+	if ext := strings.ToLower(filepath.Ext(clean)); !st.IsDir() && ext != ".xlsx" && ext != ".txt" {
+		return i18n.Errorf(nil, "err.unexpected")
 	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {

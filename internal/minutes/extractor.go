@@ -151,11 +151,12 @@ func (x *Extractor) windowed(ctx context.Context, m MeetingInfo, t Transcript, r
 
 func meetingContext(m MeetingInfo, transcript string) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Project: %s\nMeeting date: %s (%s)\n", m.Project, m.Date.Format("2006-01-02"), m.Date.Weekday())
+	fmt.Fprintf(&sb, "Meeting date: %s (%s)\n\n<meeting_data>\n", m.Date.Format("2006-01-02"), m.Date.Weekday())
+	fmt.Fprintf(&sb, "<project>%s</project>\n", m.Project)
 	if len(m.Participants) > 0 {
-		fmt.Fprintf(&sb, "Participants: %s\n", strings.Join(m.Participants, ", "))
+		fmt.Fprintf(&sb, "<participants>%s</participants>\n", strings.Join(m.Participants, ", "))
 	}
-	sb.WriteString("\n<transcript>\n")
+	sb.WriteString("</meeting_data>\n\n<transcript>\n")
 	sb.WriteString(transcript)
 	sb.WriteString("</transcript>\n")
 	return sb.String()

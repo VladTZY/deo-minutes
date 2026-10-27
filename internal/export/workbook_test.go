@@ -217,3 +217,11 @@ func TestClean(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestUniqueBaseConsidersTranscript(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "x_transcriere.txt"), []byte("1"), 0o600)
+	if b, _ := UniqueBase(dir, "x"); b != "x_v2" {
+		t.Fatalf("an existing transcript must not be overwritten, got %q", b)
+	}
+}

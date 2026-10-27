@@ -185,3 +185,13 @@ func TestPathSafety(t *testing.T) {
 		t.Error("within() wrong")
 	}
 }
+
+func TestOpenPathRefusesPrograms(t *testing.T) {
+	a, _ := newTestApp(t)
+	_ = os.MkdirAll(a.cfg.Output.Dir, 0o700)
+	exe := filepath.Join(a.cfg.Output.Dir, "evil.exe")
+	_ = os.WriteFile(exe, []byte("x"), 0o600)
+	if err := a.OpenPath(exe); err == nil {
+		t.Fatal("must not launch programs, even inside the output folder")
+	}
+}

@@ -35,6 +35,8 @@ const (
 	transcriptFile = "transcript.jsonl"
 	audioFile      = "audio.pcm"
 	quietRMS       = 0.005
+	maxMeeting     = 5 * time.Hour // hard stop, also caps disk use (~576 MB of audio)
+	maxNames       = 200
 )
 
 // sessionMeta is persisted so a crashed or failed session can be resumed.
@@ -316,7 +318,7 @@ loop:
 			tl.Add(r.TS, r.Speakers)
 			changed := false
 			for _, n := range r.Participants {
-				if n != "" && strings.ToLower(n) != botName && !names[n] {
+				if n != "" && strings.ToLower(n) != botName && !names[n] && len(names) < maxNames {
 					names[n], changed = true, true
 				}
 			}
@@ -324,6 +326,12 @@ loop:
 				a.setStatus(func(st *Status) { st.Participants = len(names) })
 			}
 		case <-tick.C:
+			if time.Since(recStart) > maxMeeting {
+				slog.Warn("maximum meeting length reached")
+				a.warn(i18n.T("warn.maxLength"))
+				leave = true
+				break loop
+			}
 			if silence > 0 && time.Since(lastSound) > silence {
 				slog.Info("ending after silence")
 				leave = true

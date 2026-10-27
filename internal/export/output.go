@@ -36,20 +36,26 @@ func safeName(s string) string {
 	return s
 }
 
-// UniqueBase returns base, or base_v2, base_v3… so that no file starting with
-// it already exists in dir. Existing minutes are never overwritten.
+// UniqueBase returns base, or base_v2, base_v3…, such that neither
+// base.xlsx nor base_transcriere.txt exists in dir. Existing minutes are
+// never overwritten.
 func UniqueBase(dir, base string) (string, error) {
 	for v := 1; v < 1000; v++ {
 		cand := base
 		if v > 1 {
 			cand = fmt.Sprintf("%s_v%d", base, v)
 		}
-		_, err := os.Stat(filepath.Join(dir, cand+".xlsx"))
-		if errors.Is(err, fs.ErrNotExist) {
-			return cand, nil
+		free := true
+		for _, suffix := range []string{".xlsx", "_transcriere.txt"} {
+			_, err := os.Stat(filepath.Join(dir, cand+suffix))
+			if err == nil {
+				free = false
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return "", err
+			}
 		}
-		if err != nil {
-			return "", err
+		if free {
+			return cand, nil
 		}
 	}
 	return "", errors.New("prea multe versiuni ale aceluiași fișier")

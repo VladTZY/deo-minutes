@@ -2,14 +2,20 @@ package bot
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	cdpruntime "github.com/chromedp/cdproto/runtime"
 
 	"deo-minutes/internal/audio"
 	"deo-minutes/internal/i18n"
@@ -40,12 +46,13 @@ func TestJoinFakeWebex(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	s, err := Join(ctx, Options{
-		Link:        MeetingLink{URL: ts.URL + "/?endAfter=7000", Password: "Parola123"},
-		DisplayName: "Asistent Minute",
-		Email:       "bot@example.com",
-		Headless:    true,
-		Selectors:   DefaultSelectors,
-		JoinTimeout: 45 * time.Second,
+		Link:         MeetingLink{URL: ts.URL + "/?endAfter=7000", Password: "Parola123"},
+		DisplayName:  "Asistent Minute",
+		Email:        "bot@example.com",
+		Headless:     true,
+		Selectors:    DefaultSelectors,
+		AllowedHosts: []string{"127.0.0.1"},
+		JoinTimeout:  45 * time.Second,
 		OnState: func(st State) {
 			mu.Lock()
 			states = append(states, st)
@@ -129,7 +136,7 @@ func TestJoinWrongPassword(t *testing.T) {
 	defer cancel()
 	_, err := Join(ctx, Options{
 		Link: MeetingLink{URL: ts.URL}, Password: "gresit", DisplayName: "Bot", Headless: true,
-		Selectors: DefaultSelectors, JoinTimeout: 40 * time.Second,
+		Selectors: DefaultSelectors, JoinTimeout: 40 * time.Second, AllowedHosts: []string{"127.0.0.1"},
 	})
 	var ue *i18n.UserError
 	if !errors.As(err, &ue) || ue.Key != "err.webex.wrongPassword" {
@@ -152,7 +159,7 @@ func TestSelftestFakeWebex(t *testing.T) {
 	dir := t.TempDir()
 	rep, err := Selftest(ctx, Options{
 		Link: MeetingLink{URL: ts.URL + "/?endAfter=60000", Password: "Parola123"}, DisplayName: "Bot",
-		Headless: true, Selectors: DefaultSelectors, JoinTimeout: 40 * time.Second,
+		Headless: true, Selectors: DefaultSelectors, JoinTimeout: 40 * time.Second, AllowedHosts: []string{"127.0.0.1"},
 	}, dir, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -164,5 +171,61 @@ func TestSelftestFakeWebex(t *testing.T) {
 		if _, err := os.Stat(dir + "/" + f); err != nil {
 			t.Errorf("missing %s", f)
 		}
+	}
+}
+
+func TestJoinAbortsWhenPageLeavesAllowedHost(t *testing.T) {
+	if testing.Short() {
+		t.Skip("needs a browser")
+	}
+	if _, err := FindBrowser(""); err != nil {
+		t.Skip("no Edge/Chrome installed")
+	}
+	html, _ := os.ReadFile("testdata/fakewebex.html")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(html) }))
+	defer ts.Close()
+	evil := strings.Replace(ts.URL, "127.0.0.1", "localhost", 1) + "/phish"
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	_, err := Join(ctx, Options{
+		Link: MeetingLink{URL: ts.URL + "/?evil=" + url.QueryEscape(evil)}, Password: "Parola123", DisplayName: "Bot",
+		Headless: true, Selectors: DefaultSelectors, JoinTimeout: 40 * time.Second, AllowedHosts: []string{"127.0.0.1"},
+	})
+	var ue *i18n.UserError
+	if !errors.As(err, &ue) || ue.Key != "err.webex.join" || !strings.Contains(err.Error(), "webex.com") {
+		t.Fatalf("want abort when leaving the host, got %v", err)
+	}
+}
+
+func TestBindingLimits(t *testing.T) {
+	s := &Session{audio: make(chan AudioChunk, 100), roster: make(chan Roster, 10)}
+	good := `{"ts":1,"pcm":"` + base64.StdEncoding.EncodeToString(make([]byte, 32000)) + `"}`
+	short := `{"ts":1,"pcm":"` + base64.StdEncoding.EncodeToString(make([]byte, 31998)) + `"}`
+
+	s.onEvent(cdpruntime.EventBindingCalled{Name: "deoAudio", Payload: good})
+	if len(s.audio) != 0 {
+		t.Fatal("data must be ignored until the page is verified on an allowed host")
+	}
+	s.onWebex.Store(true)
+	s.onEvent(cdpruntime.EventBindingCalled{Name: "deoAudio", Payload: short})
+	if len(s.audio) != 0 {
+		t.Fatal("chunks of the wrong size must be dropped")
+	}
+	for i := 0; i < 50; i++ { // a burst far above real time
+		s.onEvent(cdpruntime.EventBindingCalled{Name: "deoAudio", Payload: good})
+	}
+	if n := len(s.audio); n < 1 || n > 7 {
+		t.Fatalf("rate limit let %d chunks through instantly", n)
+	}
+	long := strings.Repeat("x", 500)
+	names := make([]string, 300)
+	for i := range names {
+		names[i] = long
+	}
+	b, _ := json.Marshal(map[string]any{"ts": 1, "participants": names, "speakers": names})
+	s.onEvent(cdpruntime.EventBindingCalled{Name: "deoRoster", Payload: string(b)})
+	r := <-s.roster
+	if len(r.Participants) != maxParticipants || len([]rune(r.Participants[0])) != maxNameLen || len(r.Speakers) != 10 {
+		t.Fatalf("roster not capped: %d names, %d chars", len(r.Participants), len(r.Participants[0]))
 	}
 }

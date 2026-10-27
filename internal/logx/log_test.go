@@ -56,3 +56,16 @@ func TestRotation(t *testing.T) {
 		t.Fatal("expected rotated file")
 	}
 }
+
+type wrapped struct{ cause error }
+
+func (w wrapped) Error() string { return "Mesaj pentru utilizator." }
+func (w wrapped) Unwrap() error { return w.cause }
+
+func TestErrorCauseIsLogged(t *testing.T) {
+	var buf bytes.Buffer
+	New(&buf, 0).Error("x", "err", wrapped{errors.New("dial tcp: timeout")})
+	if !strings.Contains(buf.String(), "Mesaj pentru utilizator. | cauza: dial tcp: timeout") {
+		t.Fatalf("cause missing: %s", buf.String())
+	}
+}

@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,6 +70,9 @@ type Options struct {
 	LobbyTimeout time.Duration
 	JoinTimeout  time.Duration // time allowed outside the lobby to get in
 	Selectors    Selectors
+	// AllowedHosts are the domains (and their subdomains) the bot may be on.
+	// Empty means webex.com. Leaving them aborts the session.
+	AllowedHosts []string
 	OnState      func(State) // called on every state change
 	OnPageState  func(string)
 }
@@ -85,9 +90,15 @@ type Session struct {
 	roster chan Roster
 
 	dropped atomic.Int64
-	done    chan struct{}
-	doneErr error
-	once    sync.Once
+	// onWebex is true while the main frame is on an allowed host; binding
+	// data from any other page is ignored.
+	onWebex  atomic.Bool
+	firstPCM atomic.Int64 // unix ms of the first accepted chunk
+	accepted atomic.Int64 // chunks accepted, for rate limiting
+	events   atomic.Int64 // capture log lines written
+	done     chan struct{}
+	doneErr  error
+	once     sync.Once
 }
 
 const (
@@ -205,8 +216,17 @@ func (s *Session) prepare() error {
 	return nil
 }
 
+// Limits on what the page can push through the bindings.
+const (
+	chunkBytes      = 32000 // exactly 1 s of 16 kHz s16le, as capture.js sends
+	maxRealtime     = 1.5   // accept at most 1.5 s of audio per wall-clock second
+	maxNameLen      = 100
+	maxParticipants = 200
+	maxEventLogs    = 50
+)
+
 func (s *Session) onEvent(e cdpruntime.EventBindingCalled) {
-	if len(e.Payload) > maxBindingPayload {
+	if len(e.Payload) > maxBindingPayload || !s.onWebex.Load() {
 		return
 	}
 	switch e.Name {
@@ -221,11 +241,13 @@ func (s *Session) onEvent(e cdpruntime.EventBindingCalled) {
 			return
 		}
 		if m.Event != "" {
-			slog.Info("capture", "event", m.Event, "detail", m.Message)
+			if s.events.Add(1) <= maxEventLogs {
+				slog.Info("capture", "event", trunc(m.Event, 40), "detail", trunc(m.Message, 200))
+			}
 			return
 		}
 		pcm, err := base64.StdEncoding.DecodeString(m.PCM)
-		if err != nil || len(pcm)%2 != 0 {
+		if err != nil || len(pcm) != chunkBytes || !s.allowChunk() {
 			return
 		}
 		select {
@@ -244,11 +266,86 @@ func (s *Session) onEvent(e cdpruntime.EventBindingCalled) {
 			return
 		}
 		r.TS = msToTime(ts.TS)
+		r.Participants = capNames(r.Participants, maxParticipants)
+		r.Speakers = capNames(r.Speakers, 10)
 		select {
 		case s.roster <- r:
 		default: // roster snapshots are frequent; a dropped one is harmless
 		}
 	}
+}
+
+// allowChunk rate-limits audio to maxRealtime × wall clock (plus a small burst).
+func (s *Session) allowChunk() bool {
+	now := time.Now().UnixMilli()
+	s.firstPCM.CompareAndSwap(0, now)
+	elapsed := float64(now-s.firstPCM.Load()) / 1000
+	if float64(s.accepted.Load()) > elapsed*maxRealtime+5 {
+		return false
+	}
+	s.accepted.Add(1)
+	return true
+}
+
+func capNames(names []string, max int) []string {
+	out := make([]string, 0, min(len(names), max))
+	for _, n := range names {
+		if len(out) == max {
+			break
+		}
+		if n = trunc(n, maxNameLen); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+func trunc(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
+// hostOK reports whether the main frame is on an allowed host.
+func (s *Session) hostOK() (string, bool) {
+	href, err := eval[string](s, "location.href")
+	if err != nil {
+		return "", false
+	}
+	u, err := url.Parse(href)
+	if err != nil {
+		return "", false
+	}
+	host := strings.ToLower(u.Hostname())
+	allowed := s.opts.AllowedHosts
+	if len(allowed) == 0 {
+		allowed = []string{"webex.com"}
+	}
+	for _, a := range allowed {
+		if u.Scheme == "https" || a != "webex.com" { // tests use http://127.0.0.1
+			if host == a || strings.HasSuffix(host, "."+a) {
+				return host, true
+			}
+		}
+	}
+	return host, false
+}
+
+// checkHost updates onWebex; a page that left the allowed hosts ends the session.
+func (s *Session) checkHost() error {
+	host, ok := s.hostOK()
+	if ok {
+		s.onWebex.Store(true)
+		return nil
+	}
+	s.onWebex.Store(false)
+	if host == "" { // still loading, or about:blank
+		return nil
+	}
+	slog.Warn("bot left allowed hosts", "host", host)
+	return i18n.Errorf(nil, "err.webex.join", "pagina a părăsit domeniul webex.com")
 }
 
 func msToTime(ms float64) time.Time {
@@ -310,6 +407,12 @@ func (s *Session) joinLoop(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-tick.C:
+		}
+		if err := s.checkHost(); err != nil {
+			return err
+		}
+		if !s.onWebex.Load() {
+			continue
 		}
 		st := s.pageState()
 		if st != last {
@@ -384,6 +487,10 @@ func (s *Session) watch(ctx context.Context) {
 		case <-s.done:
 			return
 		case <-tick.C:
+		}
+		if err := s.checkHost(); err != nil {
+			s.finish(err)
+			return
 		}
 		switch s.pageState() {
 		case "ended":

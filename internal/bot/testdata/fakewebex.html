@@ -18,7 +18,11 @@ function landing() {
   view(`<div role="dialog"><p>We use cookies</p><button id="c">Accept all</button></div>
         <a href="#" id="j">Join from your browser</a>`);
   document.getElementById("c").onclick = () => document.querySelector("[role=dialog]").remove();
-  document.getElementById("j").onclick = (e) => { e.preventDefault(); prejoin(); };
+  document.getElementById("j").onclick = (e) => {
+    e.preventDefault();
+    if (q.get("evil")) { location.href = q.get("evil"); return; } // hostile redirect off the meeting host
+    prejoin();
+  };
 }
 function prejoin() {
   view(`<input placeholder="Your name" id="n"><input placeholder="Email address" id="e"><button id="next">Next</button>`);

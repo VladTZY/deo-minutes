@@ -60,7 +60,7 @@ func TestAnthropicStructuredOutputRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	schema := map[string]any{"type": "object", "properties": map[string]any{}, "required": []string{}, "additionalProperties": false}
-	got, err := c.JSON(context.Background(), Request{System: "sys", User: "transcript", Schema: schema})
+	got, err := c.JSON(context.Background(), Request{System: "sys", Context: "transcript", User: "task", Schema: schema})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +83,11 @@ func TestAnthropicStructuredOutputRequest(t *testing.T) {
 	sys := b["system"].([]any)[0].(map[string]any)
 	if sys["cache_control"] == nil {
 		t.Error("system prompt not cached")
+	}
+	content := b["messages"].([]any)[0].(map[string]any)["content"].([]any)
+	first, second := content[0].(map[string]any), content[1].(map[string]any)
+	if first["text"] != "transcript" || first["cache_control"] == nil || second["text"] != "task" || second["cache_control"] != nil {
+		t.Errorf("shared context must be a cached block before the task: %v", content)
 	}
 	if hdr.Get("Authorization") != "Bearer gw-key" || hdr.Get("X-Api-Key") != "" {
 		t.Errorf("auth headers: %v", *hdr)

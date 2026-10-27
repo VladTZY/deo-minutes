@@ -8,9 +8,12 @@ import (
 
 // Request is one structured-output call.
 type Request struct {
-	System string         // stable instructions (cached)
-	User   string         // the transcript and meeting facts
-	Schema map[string]any // JSON schema the answer must match
+	System string // stable instructions (cached)
+	// Context is a large shared prefix (meeting facts + transcript), cached so
+	// several passes over the same meeting pay for it once. Optional.
+	Context string
+	User    string         // the task for this call
+	Schema  map[string]any // JSON schema the answer must match
 }
 
 // Client returns the model's JSON answer for a request.

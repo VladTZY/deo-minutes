@@ -104,7 +104,7 @@ func (a *Anthropic) JSON(ctx context.Context, req Request) ([]byte, error) {
 			Text:         req.System,
 			CacheControl: anthropic.NewCacheControlEphemeralParam(),
 		}},
-		Messages: []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(req.User))},
+		Messages: []anthropic.MessageParam{anthropic.NewUserMessage(userBlocks(req)...)},
 		OutputConfig: anthropic.OutputConfigParam{
 			Effort: a.cfg.Effort,
 			Format: anthropic.JSONOutputFormatParam{Schema: req.Schema},
@@ -136,6 +136,18 @@ func (a *Anthropic) JSON(ctx context.Context, req Request) ([]byte, error) {
 		return nil, i18n.Errorf(nil, "err.gateway.failed", "răspuns gol")
 	}
 	return []byte(sb.String()), nil
+}
+
+// userBlocks puts the cached shared context first, then the per-call task.
+func userBlocks(req Request) []anthropic.ContentBlockParamUnion {
+	var blocks []anthropic.ContentBlockParamUnion
+	if req.Context != "" {
+		blocks = append(blocks, anthropic.ContentBlockParamUnion{OfText: &anthropic.TextBlockParam{
+			Text:         req.Context,
+			CacheControl: anthropic.NewCacheControlEphemeralParam(),
+		}})
+	}
+	return append(blocks, anthropic.NewTextBlock(req.User))
 }
 
 // classify maps API errors to Romanian messages; the cause stays for the log.

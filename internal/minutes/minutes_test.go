@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -133,39 +134,83 @@ func fakeLLM(calls *atomic.Int32, answer func(req llm.Request) Records) llm.Clie
 var goodAction = ActionItem{Key: "a1", Title: "Raport", Description: "Trimite raportul de buget",
 	Evidence: []Evidence{{At: "00:02:00", Speaker: "Ion Ionescu", Quote: "trimiți raportul de buget până vineri"}}}
 
-func TestExtractSinglePass(t *testing.T) {
-	var calls atomic.Int32
-	x := &Extractor{LLM: fakeLLM(&calls, func(req llm.Request) Records {
-		if !strings.Contains(req.User, "Meeting date: 2026-10-27 (Tuesday)") || !strings.Contains(req.User, "[00:02:00] Ion Ionescu:") {
-			t.Errorf("user message missing facts:\n%s", req.User)
+var goodRisk = Risk{Key: "r1", TitleDescription: "Întârziere furnizor",
+	Evidence: []Evidence{{At: "00:03:00", Speaker: "Maria Ionescu", Quote: "furnizorul de servere să întârzie livrarea"}}}
+
+// register returns the single register a specialist request asks for.
+func register(req llm.Request) string {
+	props := req.Schema["properties"].(map[string]any)
+	if len(props) != 1 {
+		return "all"
+	}
+	for k := range props {
+		return k
+	}
+	return ""
+}
+
+// specialistAnswers answers each pass with records for its register only.
+func specialistAnswers(t *testing.T, seen *sync.Map) func(req llm.Request) Records {
+	return func(req llm.Request) Records {
+		reg := register(req)
+		seen.Store(reg, req)
+		switch reg {
+		case "actions":
+			return Records{Actions: []ActionItem{goodAction, {Key: "a2", Title: "fals", Evidence: []Evidence{{At: "00:01:00", Quote: "nu s-a spus"}}}}}
+		case "risks":
+			return Records{Risks: []Risk{goodRisk}}
+		case "interdependencies":
+			if strings.Contains(req.User, "a2") || !strings.Contains(req.User, "- a1: Raport") && !strings.Contains(req.User, "- r1: Întârziere furnizor") {
+				t.Errorf("interdependency pass must get validated link targets:\n%s", req.User)
+			}
+			return Records{Interdependencies: []Interdependency{{Key: "i1", Dependency: "Servere de la furnizor", ActionKeys: []string{"a1"}, RiskKeys: []string{"r1"}, Evidence: goodRisk.Evidence}}}
+		case "all": // merge call
+			return Records{Actions: []ActionItem{goodAction}, Risks: []Risk{goodRisk}}
 		}
-		return Records{Actions: []ActionItem{goodAction, {Key: "a2", Title: "fals", Evidence: []Evidence{{At: "00:01:00", Quote: "nu s-a spus"}}}}}
-	})}
+		return Records{}
+	}
+}
+
+func TestExtractSpecialistPasses(t *testing.T) {
+	var calls atomic.Int32
+	var seen sync.Map
+	x := &Extractor{LLM: fakeLLM(&calls, specialistAnswers(t, &seen))}
 	recs, rep, err := x.Extract(context.Background(), MeetingInfo{Project: "P", Date: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)}, sample)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 1 || len(recs.Actions) != 1 || rep.Dropped != 1 {
-		t.Fatalf("calls=%d recs=%+v rep=%+v", calls.Load(), recs, rep)
+	if calls.Load() != 5 {
+		t.Fatalf("calls = %d, want one per register", calls.Load())
+	}
+	for _, reg := range Registers {
+		v, ok := seen.Load(reg)
+		if !ok {
+			t.Errorf("no pass for %s", reg)
+			continue
+		}
+		req := v.(llm.Request)
+		if !strings.Contains(req.Context, "Meeting date: 2026-10-27 (Tuesday)") || !strings.Contains(req.Context, "[00:02:00] Ion Ionescu:") {
+			t.Errorf("%s: shared context missing facts", reg)
+		}
+		if req.System != commonPrompt {
+			t.Errorf("%s: system prompt must be identical across passes (cache)", reg)
+		}
+	}
+	if len(recs.Actions) != 1 || len(recs.Risks) != 1 || len(recs.Interdependencies) != 1 || rep.Dropped != 1 {
+		t.Fatalf("recs=%+v rep=%+v", recs, rep)
 	}
 }
 
-func TestExtractMapReduce(t *testing.T) {
+func TestExtractWindowedMerge(t *testing.T) {
 	var calls atomic.Int32
-	x := &Extractor{SinglePassTokens: 1, Window: 150 * time.Second, Overlap: 10 * time.Second,
-		LLM: fakeLLM(&calls, func(req llm.Request) Records {
-			if strings.HasPrefix(req.User, "Records from each window") {
-				// merge: dedupe to one action, keep evidence verbatim
-				return Records{Actions: []ActionItem{goodAction}}
-			}
-			return Records{Actions: []ActionItem{goodAction}}
-		})}
+	var seen sync.Map
+	x := &Extractor{SinglePassTokens: 1, Window: 150 * time.Second, Overlap: 10 * time.Second, LLM: fakeLLM(&calls, specialistAnswers(t, &seen))}
 	recs, _, err := x.Extract(context.Background(), MeetingInfo{Date: time.Now()}, sample)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 2 windows + 1 merge
-	if calls.Load() != 3 || len(recs.Actions) != 1 {
+	// 2 windows × 5 passes + 1 merge
+	if calls.Load() != 11 || len(recs.Actions) != 1 {
 		t.Fatalf("calls=%d actions=%d", calls.Load(), len(recs.Actions))
 	}
 }

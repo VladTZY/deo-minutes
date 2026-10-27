@@ -1,9 +1,28 @@
 package minutes
 
-// Schema is the structured-output JSON schema for Records. Strict mode needs
-// every object closed (additionalProperties: false) and every field required;
-// "unknown" is expressed as an empty string or empty list.
-func Schema() map[string]any {
+// Registers in the order the specialist passes run: interdependencies last,
+// because it links to the actions and risks found before it.
+var Registers = []string{"actions", "decisions", "risks", "changes", "interdependencies"}
+
+// Schema is the structured-output JSON schema for all of Records. Strict
+// mode needs every object closed (additionalProperties: false) and every
+// field required; "unknown" is an empty string or empty list.
+func Schema() map[string]any { return closed(registerSchemas()) }
+
+// SchemaFor is the schema of a single-register pass.
+func SchemaFor(register string) map[string]any {
+	return closed(map[string]any{register: registerSchemas()[register]})
+}
+
+func closed(props map[string]any) map[string]any {
+	req := make([]string, 0, len(props))
+	for k := range props {
+		req = append(req, k)
+	}
+	return map[string]any{"type": "object", "properties": props, "required": req, "additionalProperties": false}
+}
+
+func registerSchemas() map[string]any {
 	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 	enum := func(desc string, vals []string) map[string]any {
 		return map[string]any{"type": "string", "enum": append([]string{""}, vals...), "description": desc}
@@ -11,13 +30,7 @@ func Schema() map[string]any {
 	strs := func(desc string) map[string]any {
 		return map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": desc}
 	}
-	obj := func(props map[string]any) map[string]any {
-		req := make([]string, 0, len(props))
-		for k := range props {
-			req = append(req, k)
-		}
-		return map[string]any{"type": "object", "properties": props, "required": req, "additionalProperties": false}
-	}
+	obj := closed
 	list := func(item map[string]any) map[string]any { return map[string]any{"type": "array", "items": item} }
 
 	evidence := list(obj(map[string]any{
@@ -27,7 +40,7 @@ func Schema() map[string]any {
 	}))
 	evidence["description"] = "1-3 transcript quotes proving this record; never paraphrase"
 
-	return obj(map[string]any{
+	return map[string]any{
 		"actions": list(obj(map[string]any{
 			"key":         str("unique id: a1, a2, …"),
 			"title":       str("short title, Romanian"),
@@ -86,5 +99,5 @@ func Schema() map[string]any {
 			"notes":              str("may be empty"),
 			"evidence":           evidence,
 		})),
-	})
+	}
 }

@@ -1,0 +1,5 @@
+:root {
+  --bg: #f7f7f5;
+  --fg: #1d1f21;
+}
+html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: "Segoe UI", system-ui, sans-serif; }

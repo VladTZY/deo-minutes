@@ -1,0 +1,13 @@
+build/bin
+frontend/dist
+frontend/node_modules
+frontend/package.json.md5
+.env
+.env.*
+!.env.example
+*.wav
+*.pcm
+/spikes/**/out/
+# user's original workbook; the tracked copy lives in templates/
+/260407_*.xlsx
+.DS_Store

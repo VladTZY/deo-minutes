@@ -1,0 +1,18 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "DEO Minute",
+  "outputfilename": "DEOMinute",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "DEO"
+  },
+  "info": {
+    "companyName": "DEO",
+    "productName": "DEO Minute",
+    "productVersion": "0.1.0",
+    "comments": "Minute automate pentru ședințe Webex"
+  }
+}

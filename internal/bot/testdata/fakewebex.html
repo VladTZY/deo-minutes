@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fake Webex</title></head>
+<body>
+<div id="app"></div>
+<script>
+// A stand-in for the Webex web client, with the same visible texts the bot
+// matches on, a real WebRTC loopback carrying a 440 Hz tone, and a
+// participants panel.
+const app = document.getElementById("app");
+const q = new URLSearchParams(location.search);
+const endAfterMs = Number(q.get("endAfter") || 6000);
+let entered = {};
+
+function view(html) { app.innerHTML = html; }
+
+function landing() {
+  view(`<div role="dialog"><p>We use cookies</p><button id="c">Accept all</button></div>
+        <a href="#" id="j">Join from your browser</a>`);
+  document.getElementById("c").onclick = () => document.querySelector("[role=dialog]").remove();
+  document.getElementById("j").onclick = (e) => { e.preventDefault(); prejoin(); };
+}
+function prejoin() {
+  view(`<input placeholder="Your name" id="n"><input placeholder="Email address" id="e"><button id="next">Next</button>`);
+  document.getElementById("next").onclick = () => {
+    entered.name = document.getElementById("n").value;
+    entered.email = document.getElementById("e").value;
+    password();
+  };
+}
+function password() {
+  view(`<input type="password" aria-label="Meeting password" id="p"><button id="ok">Next</button>`);
+  document.getElementById("ok").onclick = () => {
+    if (document.getElementById("p").value !== "Parola123") { view(`<p>Incorrect password</p>`); return; }
+    preview();
+  };
+}
+function preview() {
+  view(`<button id="m" aria-label="Mute">Mute</button><button id="v">Stop video</button><button id="go">Join meeting</button>`);
+  document.getElementById("m").onclick = () => { entered.muted = true; document.getElementById("m").setAttribute("aria-label", "Unmute"); document.getElementById("m").innerText = "Unmute"; };
+  document.getElementById("v").onclick = () => { entered.videoOff = true; };
+  document.getElementById("go").onclick = lobby;
+}
+function lobby() {
+  view(`<p>Waiting for the host to let you in</p>`);
+  setTimeout(meeting, 1500);
+}
+async function meeting() {
+  view(`<button aria-label="Leave meeting" id="leave">Leave</button>
+        <button id="pbtn">Participants</button>
+        <div id="panel"></div>`);
+  document.getElementById("pbtn").onclick = () => {
+    const p = document.getElementById("panel");
+    p.innerHTML = p.innerHTML ? "" : `<div aria-label="Participants (3)">
+      <div role="listitem" aria-label="Ana Pop, speaking">Ana Pop</div>
+      <div role="listitem">Ion Ionescu (Host)</div>
+      <div role="listitem">${entered.name}</div></div>`;
+  };
+  document.getElementById("leave").onclick = () => view(`<p>You've left the meeting</p>`);
+  window.__entered = entered;
+
+  // WebRTC loopback: pc1 sends an oscillator, pc2 receives it ("remote" audio).
+  const ctx = new AudioContext();
+  const osc = ctx.createOscillator(); osc.frequency.value = 440;
+  const dst = ctx.createMediaStreamDestination(); osc.connect(dst); osc.start();
+  const pc1 = new RTCPeerConnection(), pc2 = new RTCPeerConnection();
+  pc1.onicecandidate = (e) => e.candidate && pc2.addIceCandidate(e.candidate);
+  pc2.onicecandidate = (e) => e.candidate && pc1.addIceCandidate(e.candidate);
+  dst.stream.getTracks().forEach((t) => pc1.addTrack(t, dst.stream));
+  const offer = await pc1.createOffer(); await pc1.setLocalDescription(offer); await pc2.setRemoteDescription(offer);
+  const answer = await pc2.createAnswer(); await pc2.setLocalDescription(answer); await pc1.setRemoteDescription(answer);
+
+  setTimeout(() => view(`<p>The meeting has ended</p>`), endAfterMs);
+}
+landing();
+</script>
+</body>
+</html>

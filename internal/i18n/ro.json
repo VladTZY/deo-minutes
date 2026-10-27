@@ -84,6 +84,8 @@
   "err.browser.notFound": "Nu am găsit Microsoft Edge. Setează calea browserului în Setări.",
   "err.browser.blocked": "Browserul nu poate fi controlat (posibil blocat de politica IT).",
   "err.webex.join": "Nu am reușit să intru în ședință: {0}",
+  "err.webex.passwordRequired": "Ședința cere parolă. Completează câmpul „Parolă ședință”.",
+  "err.webex.wrongPassword": "Parola ședinței este greșită.",
   "err.webex.lobbyTimeout": "Organizatorul nu a acceptat botul în {0} minute.",
   "err.webex.removed": "Botul a fost scos din ședință.",
   "err.webex.ended": "Ședința s-a încheiat.",

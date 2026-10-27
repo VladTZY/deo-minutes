@@ -31,6 +31,10 @@ func main() {
 	}
 	slog.Info("start", "version", version)
 
+	if len(os.Args) > 1 && os.Args[1] == "--selftest" {
+		os.Exit(runSelftest(os.Args[2:]))
+	}
+
 	_ = os.Setenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", gpuOffArgs)
 
 	a := app.New(version)

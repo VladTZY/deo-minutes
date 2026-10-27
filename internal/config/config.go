@@ -28,6 +28,7 @@ type Transcribe struct {
 
 type Bot struct {
 	DisplayName     string `json:"display_name"`
+	Email           string `json:"email"` // Webex asks guests for one
 	BrowserPath     string `json:"browser_path"`
 	LobbyTimeoutMin int    `json:"lobby_timeout_min"`
 	SilenceEndMin   int    `json:"silence_end_min"`
@@ -67,6 +68,7 @@ func Defaults() Config {
 		},
 		Bot: Bot{
 			DisplayName:     "Asistent Minute (înregistrează)",
+			Email:           "asistent.minute@example.com",
 			LobbyTimeoutMin: 15,
 			SilenceEndMin:   10,
 			Headless:        true,

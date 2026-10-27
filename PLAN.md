@@ -206,7 +206,7 @@ Folder `<output.dir>` (default `Documents\DEO Minute`). Per meeting:
 
 ### M0: Spikes (de-risk, throwaway code on branch `spike/*`)
 
-- [ ] **S1 Bot join + audio + speakers on a real locked-down Windows machine.**
+- [ ] **S1 Bot join + audio + speakers on a real locked-down Windows machine.** *(2026-10-27: tooling ready. Run `DEOMinute.exe --selftest [--minutes 3] [--visible] "<link>"` on a laptop, with `set DEO_MEETING_PASSWORD=…` if the password is not in the link; it writes screenshots, `audio.wav`, `roster.jsonl`, `report.json`, `raport.txt` to `%LOCALAPPDATA%\DEOMinutes\selftest\<time>` and opens the folder. Tune `internal/bot/selectors.go` from it.)*
   Script in `spikes/join/main.go`: launch `msedge.exe` (resolve `%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe`, then `%ProgramFiles%`) with
   `--headless=new --disable-gpu --disable-gpu-compositing --remote-debugging-port=0 --user-data-dir=%LOCALAPPDATA%\DEOMinutes\browser --use-fake-ui-for-media-stream --use-fake-device-for-media-stream --use-file-for-fake-audio-capture=<silence.wav> --autoplay-policy=no-user-gesture-required --lang=ro`.
   Open the link, "Join from browser", guest name, mute mic/camera, join, wait for admission, inject `capture.js` + `roster.js`, save 5 min of PCM to WAV and the speaker events to JSON.
@@ -227,12 +227,12 @@ Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user ab
 
 ### M2: Bot (`internal/bot`)
 
-- [ ] **T2.1** `browser.go`: find browser (config override → Edge → Chrome for Testing in `%LOCALAPPDATA%`), launch with S1 flags, fresh profile per session, wiped after.
-- [ ] **T2.2** `webex_flow.go` + `selectors.go`: validate link (https, host ends in `.webex.com`, else Romanian error), navigate, join flow with all selectors in `selectors.go`. States: prejoin, password prompt (fill from the session's password; wrong password → Romanian error), lobby, in-meeting, ended, removed. Lobby timeout → `Eroare`.
-- [ ] **T2.3** `capture.js`: injected with `page.AddScriptToEvaluateOnNewDocument` before navigation. Hook `RTCPeerConnection` `track` events, mix remote audio tracks into one `MediaStreamDestination`, AudioWorklet → 16 kHz Int16, 1 s chunks (base64 + page timestamp) → binding `deoAudio`. Go side caps payload size.
-- [ ] **T2.4** `roster.js`: keep the participants panel open; every 500 ms emit `{ts, participants[], activeSpeaker}` → binding `deoSpeaker`. Handle the virtualized list (scroll to collect all 50 names once, then track joins/leaves). Active speaker from the stage label / speaking indicator found in S1.
-- [ ] **T2.5** End detection: "meeting ended" DOM, removed by host, page closed, or no audio energy for `silence_end_min` (default 10, long breaks happen in 4 h meetings). **Oprește** leaves cleanly, pipeline continues.
-- [ ] **T2.6** Optional chat notice (`post_chat_notice`, default off since the user informs participants). **Done when (M2):** on Windows, the app joins a test meeting, shows live state, logs roster + speaker timeline, records audio, and leaves.
+- [x] **T2.1** `browser.go`: find browser (config override → Edge → Chrome for Testing in `%LOCALAPPDATA%`), launch with S1 flags, fresh profile per session, wiped after.
+- [x] **T2.2** `webex_flow.go` + `selectors.go`: validate link (https, host ends in `.webex.com`, else Romanian error), navigate, join flow with all selectors in `selectors.go`. States: prejoin, password prompt (fill from the session's password; wrong password → Romanian error), lobby, in-meeting, ended, removed. Lobby timeout → `Eroare`.
+- [x] **T2.3** `capture.js`: injected with `page.AddScriptToEvaluateOnNewDocument` before navigation. Hook `RTCPeerConnection` `track` events, mix remote audio tracks into one `MediaStreamDestination`, AudioWorklet → 16 kHz Int16, 1 s chunks (base64 + page timestamp) → binding `deoAudio`. Go side caps payload size.
+- [x] **T2.4** `roster.js`: keep the participants panel open; every 500 ms emit `{ts, participants[], activeSpeaker}` → binding `deoSpeaker`. Handle the virtualized list (scroll to collect all 50 names once, then track joins/leaves). Active speaker from the stage label / speaking indicator found in S1.
+- [x] **T2.5** End detection: "meeting ended" DOM, removed by host, page closed, or no audio energy for `silence_end_min` (default 10, long breaks happen in 4 h meetings). **Oprește** leaves cleanly, pipeline continues.
+- [ ] **T2.6** *(deferred: user informs participants, Q9)* Optional chat notice (`post_chat_notice`, default off since the user informs participants). **Done when (M2):** on Windows, the app joins a test meeting, shows live state, logs roster + speaker timeline, records audio, and leaves.
 
 ### M3: Transcription + speakers
 
@@ -373,4 +373,5 @@ tasks, and the Decision log.
 | 2026-10-26 | Q12, Q15, Q3b | English headers/enums, Romanian content. Shared room devices deferred to T9.1. No AWS yet: AWS checklist added (9.2); live STT/LLM work runs against fakes. |
 | 2026-10-26 | Q13, Q14 | Q13 defaults accepted for now (5.2). `Team` column left empty in v1 (T9.2 later). |
 | 2026-10-27 | S4, M5 | Excel export built and tested. Risk/Decision evidence goes in cell comments; `fullCalcOnLoad` set. Meetings have passwords (Q7 update). |
+| 2026-10-27 | M2 | Bot built on chromedp v0.21 (new generic API). Join flow verified in Chrome against a fake Webex page (landing, cookie, name/email, password, preview, lobby, meeting, end; wrong password). Audio capture via RTCPeerConnection hook verified with a real WebRTC loopback. Bot browser runs `--lang=en-US` so selectors are English. Guest email is a setting (`bot.email`). Roster includes the bot itself; filter in the app layer. |
 | 2026-10-26 | Q7, Q9, Q10 | Own-company meetings, guests allowed, lobby on, no password; user informs participants; output to Documents. |

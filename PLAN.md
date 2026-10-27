@@ -239,7 +239,7 @@ Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user ab
 - [x] **T3.1** `stt/streamer.go`: PCM channel → `StartStreamTranscription` (16 kHz, PCM, `ro-RO` or multi-language per S3), partial results ignored, final results kept with word-level timestamps. **BLOCKED(Q3b)** for live credentials; unit-test against a fake stream.
 - [x] **T3.2** `stt/rotate.go`: open a new stream every `rotate_min` (and on error), overlap 2 s, dedupe words by timestamp. Network drop: buffer PCM on disk, reconnect with backoff, replay. Test: simulated disconnect mid-sentence loses no words.
 - [x] **T3.3** `speakers/align.go`: assign each word to the active speaker at its timestamp (majority over the word's span; overlapping speech → speaker with most time); merge consecutive words into lines; unknown → "Participant necunoscut". Golden test with `testdata/words.json` + `speaker_events.json`.
-- [ ] **T3.4** Write `_transcriere.txt` incrementally (crash-safe); delete raw audio after success unless `keep_audio`.
+- [x] **T3.4** Write `_transcriere.txt` incrementally (crash-safe); delete raw audio after success unless `keep_audio`.
 
 ### M4: LLM extraction
 
@@ -265,16 +265,16 @@ Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user ab
 
 ### M7: Packaging
 
-- [ ] **T7.1** `scripts/build-windows.sh`: `wails build -platform windows/amd64 -trimpath -ldflags "-s -w -X main.version=$VER"` → `DEOMinute.exe` + zip. No installer.
-- [ ] **T7.2** `.github/workflows/build.yml` on `windows-latest`: vet, lint, test, build, upload artifact.
-- [ ] **T7.3** ~~Code signing~~ not needed (Q5: unsigned exe runs). Only document the SmartScreen "Run anyway" click in the README if it appears.
-- [ ] **T7.4** `README.md` in Romanian (load `unslop` first, per global CLAUDE.md).
+- [x] **T7.1** `scripts/build-windows.sh`: `wails build -platform windows/amd64 -trimpath -ldflags "-s -w -X main.version=$VER"` → `DEOMinute.exe` + zip. No installer.
+- [x] **T7.2** `.github/workflows/build.yml` on `windows-latest`: vet, lint, test, build, upload artifact.
+- [x] **T7.3** ~~Code signing~~ not needed (Q5: unsigned exe runs). Only document the SmartScreen "Run anyway" click in the README if it appears.
+- [x] **T7.4** `README.md` in Romanian (load `unslop` first, per global CLAUDE.md).
 
 ### M8: Hardening
 
 - [ ] **T8.1** Security review (`/cso` or `security-review`): link validation, secrets never logged or in `meta.json`, formula injection, binding payload limits, browser profile wiped, TLS verification on everywhere.
-- [ ] **T8.2** Crash recovery: on restart, offer "Reia procesarea" for sessions with a transcript but no Excel.
-- [ ] **T8.3** Load test: replay a 4 h, 50-speaker synthetic session (recorded audio looped + generated speaker events) end to end; memory stays < 500 MB, Excel ready < 5 min after end.
+- [x] **T8.2** Crash recovery: on restart, offer "Reia procesarea" for sessions with a transcript but no Excel.
+- [ ] **T8.3** *(2026-10-27: transcription path done: 4 h / 14,400 chunks with a network drop and 24 rotations, all words once and in order, heap ≈ 2 MB. Full end-to-end replay with a real browser still to do.)* Load test: replay a 4 h, 50-speaker synthetic session (recorded audio looped + generated speaker events) end to end; memory stays < 500 MB, Excel ready < 5 min after end.
 - [ ] **T8.4** Manual acceptance (section 8).
 
 ### M9: Later (not v1)
@@ -377,4 +377,5 @@ tasks, and the Decision log.
 | 2026-10-27 | M3 | Transcribe streaming client behind a `Stream` interface; tested with a fake stream (reconnect + replay without duplicates, quiet-moment rotation, fatal auth stop, capture gaps). Live AWS untested until 9.2. Speaker aligner votes over Webex snapshots, carries the last speaker 3 s, has a `Lag` knob to calibrate in S1. T3.4 (incremental transcript file) lands with the session orchestrator. |
 | 2026-10-27 | M4 | LLM via Anthropic SDK Bedrock Mantle client + structured outputs (D6, D8 changed). Prompts are English instructions demanding Romanian free text (not user-facing, more precise). Evidence check: quote must match a transcript line within ±90 s (diacritics/case-insensitive, ≥85% words); speaker/time corrected from the transcript; unverifiable records dropped. Client tested against a fake Messages SSE endpoint; live Bedrock untested until Q2/9.2. |
 | 2026-10-27 | D8 | Extraction split into specialist passes per register (user request); shared transcript sent as a cached prefix; max 3 concurrent passes (`Extractor.Parallel`) for gateway rate limits. |
+| 2026-10-27 | M6/M7 | Session orchestrator + bindings committed; UI built by a sub-agent against the binding contract (`internal/app/types.go`). Session working files in `%LOCALAPPDATA%\DEOMinutes\sessions\<id>` (meta, transcript.jsonl, audio.pcm); Excel + transcript .txt in Documents; `meta.json` no longer written to Documents. Starting a meeting requires AWS keys (Transcribe); the AI step can fail and be resumed from Istoric once the gateway is configured. |
 | 2026-10-26 | Q7, Q9, Q10 | Own-company meetings, guests allowed, lobby on, no password; user informs participants; output to Documents. |

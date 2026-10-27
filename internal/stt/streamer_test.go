@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -173,4 +174,67 @@ func TestTimelineHandlesGaps(t *testing.T) {
 	if got := tl.abs(1.5); !got.Equal(t0.Add(10500 * time.Millisecond)) {
 		t.Fatalf("abs(1.5) = %v", got)
 	}
+}
+
+// TestFourHourMeeting pushes 4 h of audio through the streamer (with one
+// network drop) and checks every second is transcribed once and memory stays
+// bounded. Skipped with -short.
+func TestFourHourMeeting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("long")
+	}
+	const n = 4 * 3600
+	start := time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)
+	var opens atomic.Int32
+	s := &Streamer{
+		Open: func(context.Context) (Stream, error) {
+			if opens.Add(1) == 2 {
+				return newFake(3600*audio.BytesPerSecond, errors.New("reset")), nil
+			}
+			return newFake(0, nil), nil
+		},
+		Rotate:      time.Nanosecond, // rotate on every quiet chunk: stresses rotation
+		ReplayPause: time.Microsecond,
+	}
+	ch := make(chan Chunk, 64)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	out, wait := s.Run(ctx, ch)
+	go func() {
+		loud := chunks(1, start, true)[0].PCM
+		quiet := make([]byte, audio.BytesPerSecond)
+		for i := 0; i < n; i++ {
+			pcm := loud
+			if i%600 == 599 { // a quiet second every 10 min
+				pcm = quiet
+			}
+			ch <- Chunk{TS: start.Add(time.Duration(i) * time.Second), PCM: pcm}
+		}
+		close(ch)
+	}()
+	var peak uint64
+	count := 0
+	var last time.Time
+	for w := range out {
+		if !w.Start.After(last) {
+			t.Fatalf("word %d out of order or duplicated at %v", count, w.Start)
+		}
+		last = w.Start
+		count++
+		if count%3600 == 0 {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			peak = max(peak, m.HeapAlloc)
+		}
+	}
+	if err := wait(); err != nil {
+		t.Fatal(err)
+	}
+	if count != n {
+		t.Fatalf("words = %d, want %d", count, n)
+	}
+	if peak > 300<<20 {
+		t.Errorf("heap peaked at %d MB", peak>>20)
+	}
+	t.Logf("streams opened: %d, heap peak %d MB", opens.Load(), peak>>20)
 }

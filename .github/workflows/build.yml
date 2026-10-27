@@ -1,0 +1,35 @@
+name: build
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tools
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+      - name: Vet and lint
+        run: |
+          go vet ./...
+          golangci-lint run ./...
+      - name: Test
+        # The bot tests drive the runner's preinstalled Edge/Chrome against a local fake Webex page.
+        run: go test ./...
+      - name: Build
+        shell: bash
+        run: wails build -platform windows/amd64 -trimpath -ldflags "-s -w -X main.version=${GITHUB_SHA::8}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DEOMinute-windows-amd64
+          path: build/bin/DEOMinute.exe

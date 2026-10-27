@@ -22,14 +22,19 @@ cp build/bin/DEOMinute.exe "$PKG/"
 # The guide as Windows-friendly text (CRLF) so it opens in Notepad.
 sed 's/$/\r/' README.md > "$PKG/CITESTE-MA.txt"
 sed 's/$/\r/' scripts/package/THIRD-PARTY-NOTICES.txt > "$PKG/THIRD-PARTY-NOTICES.txt"
-if [ -f build/dist/models/ggml-whisper-ro.bin ] && [ -f build/dist/whisper/whisper-cli.exe ]; then
+if [ -n "${NO_MODEL:-}" ] && [ -f build/dist/whisper/whisper-cli.exe ]; then
+  # Small package: the app downloads the speech model on first use.
+  cp -R build/dist/whisper "$PKG/"
+  mkdir -p "$PKG/models" && cp build/dist/models/ggml-silero-v6.2.0.bin "$PKG/models/"
+  [ -f build/cache/whisper.cpp/LICENSE ] && sed 's/$/\r/' build/cache/whisper.cpp/LICENSE > "$PKG/whisper/LICENSE-whisper.cpp.txt"
+elif [ -f build/dist/models/ggml-whisper-ro.bin ] && [ -f build/dist/whisper/whisper-cli.exe ]; then
   cp -R build/dist/whisper build/dist/models "$PKG/"
   [ -f build/cache/whisper.cpp/LICENSE ] && sed 's/$/\r/' build/cache/whisper.cpp/LICENSE > "$PKG/whisper/LICENSE-whisper.cpp.txt"
 else
   echo "note: local transcriber not prepared (scripts/prepare-local-stt.sh); DEMO step 2 will report it missing" >&2
 fi
 
-ZIP="build/DEOMinute-${VERSION}-windows-amd64.zip"
+ZIP="build/DEOMinute-${VERSION}-windows-amd64${NO_MODEL:+-lite}.zip"
 rm -f "$ZIP"
 ( cd build/pkg && zip -q -r "../$(basename "$ZIP")" DEOMinute )
 echo "built $ZIP"

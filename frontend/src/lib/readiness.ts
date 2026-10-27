@@ -12,6 +12,7 @@ export interface Check {
     detail: string; // what is there, or exactly what to do
     fix: SettingsSection;
     field?: string; // id of the input to focus in Setări
+    canDownload?: boolean; // the fix is downloading the speech model
 }
 
 // Readiness is what the main page and Setări both read.
@@ -48,9 +49,10 @@ export function checksFor(r: Readiness, mode: Mode): Check[] | null {
         const local = localReady(r.local);
         return [
             {
-                id: 'local', ok: local, fix: 'demo',
+                id: 'local', ok: local, fix: 'demo', canDownload: !!r.local?.whisperFound && !r.local?.modelFound,
                 label: t("ready.local"),
-                detail: local ? t("ready.local.ok") : t("ready.local.missing"),
+                detail: local ? t("ready.local.ok")
+                    : r.local?.whisperFound ? t("ready.model.missing") : t("ready.local.missing"),
             },
             {
                 id: 'openrouter', ok: key, fix: 'demo', field: 'or-key',

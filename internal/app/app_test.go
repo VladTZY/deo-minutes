@@ -1,9 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -306,5 +311,46 @@ func TestImportRejectsWrongFormat(t *testing.T) {
 	_ = os.WriteFile(p, []byte("RIFF\x00\x00\x00\x00WAVEnope"), 0o600)
 	if _, err := a.importWAV(p, "P", 1); err == nil {
 		t.Fatal("must reject a non-16 kHz/garbage WAV")
+	}
+}
+
+func TestModelDownloadResumesAndVerifies(t *testing.T) {
+	a, _ := newTestApp(t)
+	content := []byte(strings.Repeat("model-bytes-", 5000))
+	sum := sha256.Sum256(content)
+	var ranges []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ranges = append(ranges, r.Header.Get("Range"))
+		http.ServeContent(w, r, "m.bin", time.Time{}, bytes.NewReader(content))
+	}))
+	defer ts.Close()
+	oldURL, oldSHA, oldSize := modelURL, modelSHA256, modelSize
+	t.Cleanup(func() { modelURL, modelSHA256, modelSize = oldURL, oldSHA, oldSize })
+	modelURL, modelSHA256, modelSize = ts.URL, hex.EncodeToString(sum[:]), int64(len(content))
+
+	dir := filepath.Join(config.AppDataDir(), "models")
+	_ = os.MkdirAll(dir, 0o700)
+	part := filepath.Join(dir, modelFileName+".partial")
+	_ = os.WriteFile(part, content[:1000], 0o600) // an interrupted earlier download
+
+	if err := a.downloadModel(context.Background(), modelURL); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, modelFileName))
+	if !bytes.Equal(got, content) || len(ranges) != 1 || ranges[0] != "bytes=1000-" {
+		t.Fatalf("resume failed: %d bytes, ranges %v", len(got), ranges)
+	}
+	if !a.LocalStatus().ModelFound {
+		t.Error("downloaded model not found by LocalStatus")
+	}
+
+	// A corrupt download is rejected and removed.
+	_ = os.Remove(filepath.Join(dir, modelFileName))
+	modelSHA256 = strings.Repeat("0", 64)
+	if err := a.downloadModel(context.Background(), modelURL); err == nil {
+		t.Fatal("checksum mismatch must fail")
+	}
+	if _, err := os.Stat(part); err == nil {
+		t.Error("corrupt partial must be deleted")
 	}
 }

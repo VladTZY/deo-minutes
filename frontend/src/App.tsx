@@ -58,9 +58,15 @@ function App() {
                 return next;
             });
         });
+        const offModel = EventsOn('model_download', (p: {finished: boolean}) => {
+            if (p.finished) {
+                refreshReady();
+            }
+        });
         return () => {
             offStatus();
             offTranscript();
+            offModel();
         };
     }, [refreshReady]);
 

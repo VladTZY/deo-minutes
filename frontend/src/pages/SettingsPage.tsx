@@ -19,6 +19,7 @@ import {t} from '../lib/i18n';
 import {errorText} from '../lib/errors';
 import type {Mode} from '../lib/status';
 import {aiReady, localReady, SettingsSection} from '../lib/readiness';
+import {ModelDownload} from '../components/ModelDownload';
 import type {SettingsFocus} from '../App';
 
 type Msg = { ok: boolean; text: string } | null;
@@ -294,7 +295,9 @@ export default function SettingsPage({mode, focus, onChanged}: Props) {
                                 {local.modelPath && (
                                     <p className="hint">{t("settings.local.path")} <code className="path">{local.modelPath}</code></p>
                                 )}
-                                {!localReady(local) && <p className="alert alert-warn">{t("err.local.missing")}</p>}
+                                {!localReady(local) && (local.whisperFound
+                                    ? <ModelDownload/>
+                                    : <p className="alert alert-warn">{t("err.local.missing")}</p>)}
                             </>
                         )}
                     </Block>

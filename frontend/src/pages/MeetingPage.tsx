@@ -26,6 +26,7 @@ import {
     toneOf,
 } from '../lib/status';
 import {aiReady, Check, checksFor, localReady, Readiness, SettingsSection} from '../lib/readiness';
+import {ModelDownload} from '../components/ModelDownload';
 
 interface Props {
     status: app.Status;
@@ -428,11 +429,13 @@ function SetupView({mode, checks, blocked, pending, fields, set, onSubmit, onImp
                                     <span className="check-body">
                                         <span className="check-label">{c.label}</span>
                                         <span className="check-detail">{c.detail}</span>
-                                        {!c.ok && (
+                                        {!c.ok && (c.canDownload ? (
+                                            <ModelDownload/>
+                                        ) : (
                                             <button type="button" className="link-btn" onClick={() => onOpenSettings(c.fix, c.field)}>
                                                 {t("ready.fix")}
                                             </button>
-                                        )}
+                                        ))}
                                     </span>
                                 </li>
                             ))}

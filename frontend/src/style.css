@@ -909,3 +909,7 @@ input:disabled, select:disabled { background: var(--surface-2); color: var(--tex
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; }
 }
+
+.model-dl { display: grid; gap: 6px; margin-top: 6px; justify-items: start; }
+.model-dl .progress { width: 100%; flex: none; }
+.hint-error { color: var(--red); }

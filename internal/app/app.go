@@ -25,6 +25,8 @@ type App struct {
 	session *session // nil when idle
 	status  Status
 
+	downloading bool // speech model download in progress
+
 	// emit sends events to the frontend; replaced in tests.
 	emit func(event string, data any)
 	// llmFactory builds the model client; nil means a.newLLM (tests inject a fake).

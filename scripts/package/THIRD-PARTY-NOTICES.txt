@@ -8,7 +8,9 @@ Speech model (models\ggml-whisper-ro.bin)
   Converted to ggml and quantized (q5_0) from one of:
   - eek/whisper-turbo-ro-en (https://huggingface.co/eek/whisper-turbo-ro-en), MIT License
   - openai/whisper-large-v3-turbo (https://huggingface.co/openai/whisper-large-v3-turbo), MIT License
-  The file MODEL.txt next to it says which one this package contains.
+  The file MODEL.txt next to it says which one this package contains. In the
+  small package the app downloads ggml-large-v3-turbo-q5_0.bin from
+  https://huggingface.co/ggerganov/whisper.cpp (MIT) on first use, checksum-verified.
 
 Silero VAD (models\ggml-silero-v6.2.0.bin)
   https://huggingface.co/ggml-org/whisper-vad, MIT License (silero-vad by Silero Team)

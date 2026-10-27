@@ -26,6 +26,10 @@ export function DeleteOpenRouterKey() {
   return window['go']['app']['App']['DeleteOpenRouterKey']();
 }
 
+export function DownloadModel() {
+  return window['go']['app']['App']['DownloadModel']();
+}
+
 export function Generate(arg1) {
   return window['go']['app']['App']['Generate'](arg1);
 }

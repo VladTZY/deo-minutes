@@ -14,6 +14,8 @@ export function DeleteHistory(arg1:string):Promise<void>;
 
 export function DeleteOpenRouterKey():Promise<void>;
 
+export function DownloadModel():Promise<void>;
+
 export function Generate(arg1:string):Promise<void>;
 
 export function GetSettings():Promise<app.Settings>;

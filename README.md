@@ -20,7 +20,7 @@ DEMO este potrivit pentru teste: poți relua orice pas și poți importa o înre
 
 - Windows 10 sau 11, cu Microsoft Edge (vine cu Windows).
 - Conexiune la internet.
-- Pentru DEMO: o cheie OpenRouter. Transcriptorul local vine în arhivă (folderele `whisper` și `models`) și are nevoie de Microsoft Visual C++ Redistributable 2015-2022 (x64), prezent pe majoritatea calculatoarelor.
+- Pentru DEMO: o cheie OpenRouter. Transcriptorul local vine în arhivă (folderul `whisper`) și are nevoie de Microsoft Visual C++ Redistributable 2015-2022 (x64), prezent pe majoritatea calculatoarelor. Dacă modelul de transcriere nu este în arhivă, aplicația îl descarcă o singură dată (574 MB) la apăsarea butonului **Descarcă modelul** din „Verificări înainte de ședință”.
 - Pentru PROD: chei AWS pentru Amazon Transcribe (regiunea `eu-central-1`, Frankfurt) și acces la modelul AI prin gateway-ul companiei sau direct prin AWS Bedrock.
 
 Cheile le primești de la persoana care administrează contul AWS al companiei.

@@ -369,7 +369,11 @@ func (a *App) finish(ctx context.Context, s *session) {
 		a.endSession(i18n.Errorf(err, "warn.transcriptEmpty"))
 		return
 	}
-	client, err := a.newLLM(ctx)
+	factory := a.llmFactory
+	if factory == nil {
+		factory = a.newLLM
+	}
+	client, err := factory(ctx)
 	if err != nil {
 		a.endSession(err)
 		return

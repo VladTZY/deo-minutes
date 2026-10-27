@@ -13,6 +13,7 @@ import (
 
 	"deo-minutes/internal/config"
 	"deo-minutes/internal/i18n"
+	"deo-minutes/internal/llm"
 )
 
 type App struct {
@@ -26,6 +27,8 @@ type App struct {
 
 	// emit sends events to the frontend; replaced in tests.
 	emit func(event string, data any)
+	// llmFactory builds the model client; nil means a.newLLM (tests inject a fake).
+	llmFactory func(ctx context.Context) (llm.Client, error)
 }
 
 func New(version string) *App {

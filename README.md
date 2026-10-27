@@ -4,12 +4,24 @@ DEO Minute intră într-o ședință Webex ca participant, transcrie discuția �
 
 Aplicația rulează local pe Windows, fără drepturi de administrator și fără instalare.
 
+## Cele două moduri
+
+Comutatorul **DEMO | PROD** din colțul de sus alege cum se lucrează:
+
+| | DEMO | PROD |
+|---|---|---|
+| Transcriere | pe laptop, după ședință (model pentru limba română) | Amazon Transcribe, în timpul ședinței |
+| Completarea Excel-ului | OpenRouter | AWS Bedrock |
+| Pași | 1. Înregistrează, 2. Transcrie, 3. Generează minuta: fiecare cu butonul lui | automat, după Pornește |
+
+DEMO este potrivit pentru teste: poți relua orice pas și poți importa o înregistrare WAV fără să intri într-o ședință.
+
 ## Cerințe
 
 - Windows 10 sau 11, cu Microsoft Edge (vine cu Windows).
 - Conexiune la internet.
-- Chei AWS pentru Amazon Transcribe, regiunea `eu-central-1` (Frankfurt).
-- Acces la modelul AI: prin gateway-ul companiei sau direct prin AWS Bedrock.
+- Pentru DEMO: o cheie OpenRouter. Transcriptorul local vine în arhivă (folderele `whisper` și `models`) și are nevoie de Microsoft Visual C++ Redistributable 2015-2022 (x64), prezent pe majoritatea calculatoarelor.
+- Pentru PROD: chei AWS pentru Amazon Transcribe (regiunea `eu-central-1`, Frankfurt) și acces la modelul AI prin gateway-ul companiei sau direct prin AWS Bedrock.
 
 Cheile le primești de la persoana care administrează contul AWS al companiei.
 
@@ -17,11 +29,8 @@ Cheile le primești de la persoana care administrează contul AWS al companiei.
 
 1. Dezarhivează `DEOMinute-<versiune>-windows-amd64.zip` într-un folder al tău, de exemplu `Documente\DEO Minute app`.
 2. Pornește `DEOMinute.exe`. Dacă Windows afișează „Windows a protejat computerul”, apasă **Mai multe informații**, apoi **Rulează oricum**. Aplicația nu este semnată digital, de aceea apare mesajul.
-3. Deschide **Setări** și completează:
-   - **Chei AWS**: Access Key ID și Secret Access Key. Se salvează în Windows Credential Manager, nu într-un fișier.
-   - **Gateway AI**: adresa gateway-ului, dacă există. Lasă câmpul gol pentru acces direct la AWS Bedrock.
-   - **Autentificare**: „Chei AWS” dacă folosești aceleași chei ca la transcriere; altfel cheia gateway-ului sau cheia API Bedrock.
-4. Apasă **Testează transcrierea** și **Testează gateway**. Ambele trebuie să afișeze „Conexiune reușită”.
+3. Pagina **Ședință** arată în dreapta „Verificări înainte de ședință”: ce lipsește are un link direct spre setarea potrivită.
+4. În **Setări**, pentru DEMO: cheia OpenRouter, apoi butonul de test. Pentru PROD: cheile AWS (Access Key ID și Secret Access Key), gateway-ul AI dacă există (gol înseamnă direct AWS Bedrock), apoi testele. Cheile se salvează în Windows Credential Manager, nu într-un fișier.
 
 ## Înregistrarea unei ședințe
 
@@ -33,9 +42,17 @@ Cheile le primești de la persoana care administrează contul AWS al companiei.
 
 Informează participanții că ședința este înregistrată și transcrisă.
 
-Botul iese singur când ședința se termină, când este scos din ședință sau după 10 minute de liniște. Poți opri oricând cu **Oprește**; minuta se generează din ce s-a înregistrat până atunci.
+Botul iese singur când ședința se termină, când este scos din ședință, după 10 minute de liniște sau după 5 ore. Poți opri oricând cu **Oprește**; se păstrează ce s-a înregistrat până atunci.
 
-După ședință, aplicația generează minuta (de obicei câteva minute pentru o ședință lungă) și afișează **Deschide Excel**.
+În **PROD**, minuta se generează automat după ședință și apare **Deschide Excel**.
+
+În **DEMO**, apeși pe rând:
+
+1. **Transcrie**: rulează pe laptop. Durează aproximativ cât ședința sau mai mult, în funcție de procesor; bara arată progresul. Poți opri și relua.
+2. Verifici textul transcrierii afișat pe ecran.
+3. **Generează minuta**: completează Excel-ul prin OpenRouter, apoi apare **Deschide Excel**.
+
+Pentru un test fără ședință, folosește **Importă o înregistrare WAV** (16 kHz, mono, 16 biți) și continuă de la pasul 2.
 
 ## Unde se salvează fișierele
 
@@ -50,9 +67,9 @@ Fiecare rând din registru are în coloana Notes (sau într-un comentariu pe cel
 
 Fișierele de lucru (transcrierea brută, eventual audio) stau în `%LOCALAPPDATA%\DEOMinutes\sessions` și se șterg după 30 de zile (configurabil în Setări).
 
-## Dacă generarea minutei eșuează
+## Dacă un pas eșuează
 
-Transcrierea rămâne salvată. Corectează problema (de exemplu setările gateway-ului), apoi deschide **Istoric** și apasă **Reia procesarea** la ședința respectivă.
+Înregistrarea și transcrierea rămân salvate. Corectează problema (de exemplu cheia OpenRouter sau setările gateway-ului), apoi deschide **Istoric**: fiecare ședință are butonul pentru pasul următor (**Transcrie**, **Generează** sau **Deschide Excel**).
 
 ## Probleme frecvente
 
@@ -62,7 +79,9 @@ Transcrierea rămâne salvată. Corectează problema (de exemplu setările gatew
 | Organizatorul nu a acceptat botul | Organizatorul trebuie să-l accepte din sala de așteptare Webex. |
 | Ședința cere parolă | Completează câmpul „Parolă ședință”. |
 | Cheile AWS pentru transcriere nu sunt configurate | Setări → Chei AWS. |
-| Gateway-ul AI a refuzat cheia | Verifică cheia și tipul de autentificare din Setări → Gateway AI. |
+| Gateway-ul AI a refuzat cheia | Verifică cheia și tipul de autentificare din Setări → Mod PROD. |
+| Contul OpenRouter nu mai are credit | Adaugă credit în contul OpenRouter. |
+| Transcriptorul local are nevoie de Microsoft Visual C++ | Cere echipei IT „Visual C++ Redistributable 2015-2022 x64” sau o arhivă care îl include. |
 
 Jurnalul aplicației, util pentru suport, este în `%LOCALAPPDATA%\DEOMinutes\logs`. Nu conține chei, parole sau textul transcrierii.
 
@@ -79,4 +98,4 @@ Adaugă `--visible` ca să vezi fereastra browserului. Rezultatele (capturi de e
 
 ## Pentru dezvoltatori
 
-Planul, deciziile și întrebările deschise sunt în `PLAN.md`; convențiile pentru agenți în `CLAUDE.md`. Build: `scripts/build-windows.sh`.
+Planul, deciziile și întrebările deschise sunt în `PLAN.md`; convențiile pentru agenți în `CLAUDE.md`. Transcriptorul local: `HF_TOKEN=… scripts/prepare-local-stt.sh` (sau `MODEL=stock` pentru test). Build: `scripts/build-windows.sh`.

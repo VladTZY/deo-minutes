@@ -22,6 +22,14 @@ export function DeleteHistory(arg1) {
   return window['go']['app']['App']['DeleteHistory'](arg1);
 }
 
+export function DeleteOpenRouterKey() {
+  return window['go']['app']['App']['DeleteOpenRouterKey']();
+}
+
+export function Generate(arg1) {
+  return window['go']['app']['App']['Generate'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['app']['App']['GetSettings']();
 }
@@ -30,12 +38,20 @@ export function History() {
   return window['go']['app']['App']['History']();
 }
 
-export function OpenPath(arg1) {
-  return window['go']['app']['App']['OpenPath'](arg1);
+export function ImportAudio(arg1, arg2) {
+  return window['go']['app']['App']['ImportAudio'](arg1, arg2);
 }
 
-export function Resume(arg1) {
-  return window['go']['app']['App']['Resume'](arg1);
+export function LocalStatus() {
+  return window['go']['app']['App']['LocalStatus']();
+}
+
+export function Mode() {
+  return window['go']['app']['App']['Mode']();
+}
+
+export function OpenPath(arg1) {
+  return window['go']['app']['App']['OpenPath'](arg1);
 }
 
 export function SaveSettings(arg1) {
@@ -48,6 +64,14 @@ export function SetAWSCredentials(arg1, arg2, arg3) {
 
 export function SetGatewayKey(arg1) {
   return window['go']['app']['App']['SetGatewayKey'](arg1);
+}
+
+export function SetMode(arg1) {
+  return window['go']['app']['App']['SetMode'](arg1);
+}
+
+export function SetOpenRouterKey(arg1) {
+  return window['go']['app']['App']['SetOpenRouterKey'](arg1);
 }
 
 export function Start(arg1) {
@@ -66,12 +90,20 @@ export function SuggestMeetingNo(arg1) {
   return window['go']['app']['App']['SuggestMeetingNo'](arg1);
 }
 
-export function TestGateway() {
-  return window['go']['app']['App']['TestGateway']();
+export function TestAI() {
+  return window['go']['app']['App']['TestAI']();
 }
 
 export function TestTranscribe() {
   return window['go']['app']['App']['TestTranscribe']();
+}
+
+export function Transcribe(arg1) {
+  return window['go']['app']['App']['Transcribe'](arg1);
+}
+
+export function Transcript(arg1) {
+  return window['go']['app']['App']['Transcript'](arg1);
 }
 
 export function Translations() {

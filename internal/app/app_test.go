@@ -6,12 +6,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/zalando/go-keyring"
 
+	"deo-minutes/internal/audio"
 	"deo-minutes/internal/config"
 	"deo-minutes/internal/i18n"
 	"deo-minutes/internal/llm"
@@ -20,7 +22,7 @@ import (
 
 func TestEveryStateHasLabel(t *testing.T) {
 	for _, s := range []string{StateIdle, StateStartingBrowser, StateConnecting, StateLobby, StateRecording,
-		StateFinishingTranscript, StateGenerating, StateSaving, StateDone, StateError} {
+		StateFinishingTranscript, StateRecorded, StateTranscribing, StateTranscribed, StateGenerating, StateSaving, StateDone, StateError} {
 		if !i18n.Has("state." + s) {
 			t.Errorf("ro.json lacks state.%s", s)
 		}
@@ -82,7 +84,7 @@ func writeSession(t *testing.T, id string) {
 	}
 }
 
-func TestResumeWritesExcelAndHistory(t *testing.T) {
+func TestGenerateWritesExcelAndHistory(t *testing.T) {
 	a, statuses := newTestApp(t)
 	id := "20261027-100000"
 	writeSession(t, id)
@@ -97,10 +99,10 @@ func TestResumeWritesExcelAndHistory(t *testing.T) {
 	}
 
 	h := a.History()
-	if len(h) != 1 || !h[0].CanResume || h[0].ExcelPath != "" {
+	if len(h) != 1 || !h[0].CanGenerate || h[0].CanTranscribe || h[0].ExcelPath != "" {
 		t.Fatalf("history before: %+v", h)
 	}
-	if err := a.Resume(id); err != nil {
+	if err := a.Generate(id); err != nil {
 		t.Fatal(err)
 	}
 	st := waitState(t, statuses, StateDone, StateError)
@@ -120,11 +122,11 @@ func TestResumeWritesExcelAndHistory(t *testing.T) {
 		t.Errorf("transcript txt: %q", txt)
 	}
 	h = a.History()
-	if len(h) != 1 || h[0].CanResume || h[0].ExcelPath != st.Result.ExcelPath || h[0].Counts.Actions != 1 {
+	if len(h) != 1 || !h[0].Steps.Generated || h[0].ExcelPath != st.Result.ExcelPath || h[0].Counts.Actions != 1 {
 		t.Fatalf("history after: %+v", h)
 	}
-	// A second resume never overwrites the first workbook.
-	if err := a.Resume(id); err != nil {
+	// Generating again never overwrites the first workbook.
+	if err := a.Generate(id); err != nil {
 		t.Fatal(err)
 	}
 	st2 := waitState(t, statuses, StateDone, StateError)
@@ -133,19 +135,20 @@ func TestResumeWritesExcelAndHistory(t *testing.T) {
 	}
 }
 
-func TestResumeWithoutGatewayShowsRomanianError(t *testing.T) {
+func TestGenerateWithoutGatewayShowsRomanianError(t *testing.T) {
 	a, statuses := newTestApp(t)
 	keyring.MockInit()
+	a.cfg.Mode = config.ModeProd
 	writeSession(t, "20261027-110000")
-	if err := a.Resume("20261027-110000"); err != nil {
+	if err := a.Generate("20261027-110000"); err != nil {
 		t.Fatal(err)
 	}
 	st := waitState(t, statuses, StateError, StateDone)
 	if st.State != StateError || st.Error != i18n.T("err.gateway.notConfigured") {
 		t.Fatalf("status: %+v", st)
 	}
-	if !a.History()[0].CanResume {
-		t.Error("failed session must stay resumable")
+	if !a.History()[0].CanGenerate {
+		t.Error("a failed generation must stay retryable")
 	}
 }
 
@@ -159,7 +162,6 @@ func TestStartValidation(t *testing.T) {
 		{StartRequest{Link: "https://evil.com/x", Project: "P", MeetingNo: 1}, "err.link.invalid"},
 		{StartRequest{Link: "https://a.webex.com/meet/x", Project: " ", MeetingNo: 1}, "err.project.empty"},
 		{StartRequest{Link: "https://a.webex.com/meet/x", Project: "P", MeetingNo: 0}, "err.meetingNo.invalid"},
-		{StartRequest{Link: "https://a.webex.com/meet/x", Project: "P", MeetingNo: 1}, "err.transcribe.creds"},
 	}
 	for _, c := range cases {
 		err := a.Start(c.req)
@@ -175,7 +177,7 @@ func TestPathSafety(t *testing.T) {
 	if err := a.OpenPath("/etc/passwd"); err == nil {
 		t.Error("must refuse paths outside the app's folders")
 	}
-	if err := a.Resume("../../etc"); err == nil {
+	if err := a.Generate("../../etc"); err == nil {
 		t.Error("must refuse bad session ids")
 	}
 	if err := a.DeleteHistory("../x"); err == nil {
@@ -193,5 +195,116 @@ func TestOpenPathRefusesPrograms(t *testing.T) {
 	_ = os.WriteFile(exe, []byte("x"), 0o600)
 	if err := a.OpenPath(exe); err == nil {
 		t.Fatal("must not launch programs, even inside the output folder")
+	}
+}
+
+func TestStartInProdNeedsAWS(t *testing.T) {
+	a, _ := newTestApp(t)
+	keyring.MockInit()
+	a.cfg.Mode = config.ModeProd
+	err := a.Start(StartRequest{Link: "https://a.webex.com/meet/x", Project: "P", MeetingNo: 1})
+	var ue *i18n.UserError
+	if !errors.As(err, &ue) || ue.Key != "err.transcribe.creds" {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestDemoWithoutOpenRouterKey(t *testing.T) {
+	a, statuses := newTestApp(t)
+	keyring.MockInit()
+	a.cfg.Mode = config.ModeDemo
+	writeSession(t, "20261027-120000")
+	if err := a.Generate("20261027-120000"); err != nil {
+		t.Fatal(err)
+	}
+	st := waitState(t, statuses, StateError, StateDone)
+	if st.Error != i18n.T("err.openrouter.notConfigured") {
+		t.Fatalf("status: %+v", st)
+	}
+}
+
+// fakeWhisper writes a shell script that behaves like whisper-cli: it reads
+// -of and writes a JSON transcript with one word per segment.
+func fakeWhisper(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script stand-in")
+	}
+	p := filepath.Join(t.TempDir(), "whisper-cli")
+	script := `#!/bin/sh
+while [ $# -gt 0 ]; do case "$1" in -of) out="$2"; shift;; esac; shift; done
+cat > "$out.json" <<'J'
+{"transcription":[
+ {"offsets":{"from":500,"to":900},"text":" [S1] Ion,"},
+ {"offsets":{"from":900,"to":1300},"text":" trimite"},
+ {"offsets":{"from":1300,"to":1700},"text":" raportul"},
+ {"offsets":{"from":1700,"to":2100},"text":" de"},
+ {"offsets":{"from":2100,"to":2500},"text":" buget"},
+ {"offsets":{"from":2500,"to":2900},"text":" mâine"},
+ {"offsets":{"from":2900,"to":3000},"text":"."}
+]}
+J
+`
+	if err := os.WriteFile(p, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestDemoStepsImportTranscribeGenerate(t *testing.T) {
+	a, statuses := newTestApp(t)
+	a.cfg.Mode = config.ModeDemo
+	model := filepath.Join(t.TempDir(), "model.bin")
+	_ = os.WriteFile(model, []byte("x"), 0o600)
+	a.cfg.LocalSTT.WhisperExe, a.cfg.LocalSTT.Model = fakeWhisper(t), model
+
+	wav := filepath.Join(t.TempDir(), "in.wav")
+	w, _ := audio.CreateWAV(wav)
+	_, _ = w.Write(make([]byte, 4*audio.BytesPerSecond))
+	_ = w.Close()
+
+	id, err := a.importWAV(wav, "Proiect Demo", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := a.History(); len(h) != 1 || !h[0].CanTranscribe || h[0].CanGenerate || h[0].Imported != "in.wav" {
+		t.Fatalf("after import: %+v", h)
+	}
+	if err := a.Transcribe(id); err != nil {
+		t.Fatal(err)
+	}
+	st := waitState(t, statuses, StateTranscribed, StateError)
+	if st.State != StateTranscribed || !st.Steps.Transcribed || st.Progress != 1 {
+		t.Fatalf("transcribe: %+v", st)
+	}
+	lines, err := a.Transcript(id)
+	if err != nil || len(lines) != 1 || lines[0] != "[00:00:00] Participant necunoscut: Ion, trimite raportul de buget mâine." {
+		t.Fatalf("transcript: %q %v", lines, err)
+	}
+
+	a.llmFactory = func(context.Context) (llm.Client, error) {
+		return llm.Func(func(_ context.Context, req llm.Request) ([]byte, error) {
+			if _, ok := req.Schema["properties"].(map[string]any)["actions"]; ok {
+				return json.Marshal(minutes.Records{Actions: []minutes.ActionItem{{Key: "a1", Title: "Raport buget",
+					Evidence: []minutes.Evidence{{At: "00:00:00", Speaker: "Participant necunoscut", Quote: "trimite raportul de buget mâine"}}}}})
+			}
+			return []byte(`{}`), nil
+		}), nil
+	}
+	if err := a.Generate(id); err != nil {
+		t.Fatal(err)
+	}
+	st = waitState(t, statuses, StateDone, StateError)
+	if st.State != StateDone || st.Result.Counts.Actions != 1 || !st.Steps.Generated {
+		t.Fatalf("generate: %+v", st)
+	}
+}
+
+func TestImportRejectsWrongFormat(t *testing.T) {
+	a, _ := newTestApp(t)
+	p := filepath.Join(t.TempDir(), "x.wav")
+	_ = os.WriteFile(p, []byte("RIFF\x00\x00\x00\x00WAVEnope"), 0o600)
+	if _, err := a.importWAV(p, "P", 1); err == nil {
+		t.Fatal("must reject a non-16 kHz/garbage WAV")
 	}
 }

@@ -39,6 +39,29 @@ type Bot struct {
 	Headless        bool   `json:"headless"`
 }
 
+// Modes. DEMO: local Romanian transcriber + OpenRouter, run step by step.
+// PROD: Amazon Transcribe (live) + Claude on Bedrock, fully automatic.
+const (
+	ModeDemo = "demo"
+	ModeProd = "prod"
+)
+
+// OpenRouter is the DEMO-mode AI provider.
+type OpenRouter struct {
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+}
+
+// LocalSTT is the DEMO-mode transcriber (whisper.cpp + a Romanian model).
+// Empty paths mean "next to DEOMinute.exe, else in the app data folder".
+type LocalSTT struct {
+	WhisperExe string `json:"whisper_exe"`
+	Model      string `json:"model"`
+	VADModel   string `json:"vad_model"`
+	Threads    int    `json:"threads"` // 0 = all cores but one
+	Language   string `json:"language"`
+}
+
 type Output struct {
 	Dir           string `json:"dir"`
 	KeepAudio     bool   `json:"keep_audio"`
@@ -52,6 +75,9 @@ type Last struct {
 }
 
 type Config struct {
+	Mode       string     `json:"mode"`
+	OpenRouter OpenRouter `json:"openrouter"`
+	LocalSTT   LocalSTT   `json:"local_stt"`
 	Gateway    Gateway    `json:"gateway"`
 	Transcribe Transcribe `json:"transcribe"`
 	Bot        Bot        `json:"bot"`
@@ -62,6 +88,9 @@ type Config struct {
 // Defaults returns the configuration used when no file exists yet.
 func Defaults() Config {
 	return Config{
+		Mode:       ModeDemo,
+		OpenRouter: OpenRouter{Model: "anthropic/claude-opus-5.5", Effort: "high"},
+		LocalSTT:   LocalSTT{Language: "ro"},
 		Gateway: Gateway{
 			Region:        "eu-central-1",
 			ModelID:       "anthropic.claude-opus-5-5",
@@ -103,6 +132,9 @@ func Load(path string) (Config, error) {
 	c := Defaults()
 	if err := json.Unmarshal(b, &c); err != nil {
 		return Config{}, fmt.Errorf("config invalid: %w", err)
+	}
+	if c.Mode != ModeDemo && c.Mode != ModeProd {
+		c.Mode = ModeDemo
 	}
 	if c.Last.MeetingNoByProject == nil {
 		c.Last.MeetingNoByProject = map[string]int{}

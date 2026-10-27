@@ -17,6 +17,9 @@ const (
 	StateLobby               = "lobby"
 	StateRecording           = "recording"
 	StateFinishingTranscript = "finishing_transcript"
+	StateRecorded            = "recorded"     // DEMO: audio saved, waiting for step 2
+	StateTranscribing        = "transcribing" // DEMO: local transcriber running (Progress)
+	StateTranscribed         = "transcribed"  // DEMO: transcript ready, waiting for step 3
 	StateGenerating          = "generating"
 	StateSaving              = "saving"
 	StateDone                = "done"
@@ -56,9 +59,20 @@ type Result struct {
 	Counts         Counts `json:"counts"`
 }
 
+// Steps a session has completed: 1 record, 2 transcribe, 3 generate Excel.
+type Steps struct {
+	Recorded    bool `json:"recorded"`
+	Transcribed bool `json:"transcribed"`
+	Generated   bool `json:"generated"`
+}
+
 // Status is the live state of the current session.
 type Status struct {
 	State        string   `json:"state"`
+	SessionID    string   `json:"sessionId"` // the session the steps apply to
+	Mode         string   `json:"mode"`      // "demo" | "prod"
+	Progress     float64  `json:"progress"`  // 0..1 while transcribing locally
+	Steps        Steps    `json:"steps"`
 	Label        string   `json:"label"`        // Romanian, ready to show
 	StartedAt    int64    `json:"startedAt"`    // unix ms when recording started, 0 before
 	Participants int      `json:"participants"` // people seen in the meeting (bot excluded)
@@ -70,11 +84,17 @@ type Status struct {
 
 // Settings is everything the Setări page edits, without secrets.
 type Settings struct {
+	Mode       string             `json:"mode"` // "demo" | "prod"
+	OpenRouter OpenRouterSettings `json:"openrouter"`
 	Gateway    GatewaySettings    `json:"gateway"`
 	Transcribe TranscribeSettings `json:"transcribe"`
 	Bot        BotSettings        `json:"bot"`
 	Output     OutputSettings     `json:"output"`
 	Secrets    SecretStatus       `json:"secrets"` // read-only: which secrets are stored
+}
+
+type OpenRouterSettings struct {
+	Model string `json:"model"` // e.g. anthropic/claude-opus-5.5
 }
 
 type GatewaySettings struct {
@@ -105,17 +125,30 @@ type OutputSettings struct {
 }
 
 type SecretStatus struct {
-	GatewayKey bool `json:"gatewayKey"`
-	AWS        bool `json:"aws"`
+	OpenRouterKey bool `json:"openRouterKey"`
+	GatewayKey    bool `json:"gatewayKey"`
+	AWS           bool `json:"aws"`
 }
 
-// HistoryItem is one past meeting.
+// HistoryItem is one past meeting (or imported recording).
 type HistoryItem struct {
-	ID        string `json:"id"`
-	Date      string `json:"date"` // dd.mm.yyyy HH:MM
-	Project   string `json:"project"`
-	MeetingNo int    `json:"meetingNo"`
-	ExcelPath string `json:"excelPath"` // empty if not generated
-	Counts    Counts `json:"counts"`
-	CanResume bool   `json:"canResume"` // transcript exists but no Excel
+	ID            string `json:"id"`
+	Date          string `json:"date"` // dd.mm.yyyy HH:MM
+	Project       string `json:"project"`
+	MeetingNo     int    `json:"meetingNo"`
+	Mode          string `json:"mode"`
+	Imported      string `json:"imported"`  // file name if imported, else empty
+	ExcelPath     string `json:"excelPath"` // empty if not generated
+	Counts        Counts `json:"counts"`
+	Steps         Steps  `json:"steps"`
+	CanTranscribe bool   `json:"canTranscribe"` // audio exists (step 2 can run)
+	CanGenerate   bool   `json:"canGenerate"`   // transcript exists (step 3 can run)
+}
+
+// LocalStatus says whether the local transcriber files are installed.
+type LocalStatus struct {
+	WhisperFound bool   `json:"whisperFound"`
+	ModelFound   bool   `json:"modelFound"`
+	VADFound     bool   `json:"vadFound"`
+	ModelPath    string `json:"modelPath"`
 }

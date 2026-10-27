@@ -44,12 +44,14 @@ func (a *App) GetSettings() Settings {
 	c := a.cfg
 	a.mu.Unlock()
 	return Settings{
+		Mode:       c.Mode,
+		OpenRouter: OpenRouterSettings{Model: c.OpenRouter.Model},
 		Gateway:    GatewaySettings{BaseURL: c.Gateway.BaseURL, Region: c.Gateway.Region, ModelID: c.Gateway.ModelID, Auth: c.Gateway.Auth},
 		Transcribe: TranscribeSettings{Region: c.Transcribe.Region, MultiLanguage: len(c.Transcribe.MultiLanguage) >= 2},
 		Bot: BotSettings{DisplayName: c.Bot.DisplayName, Email: c.Bot.Email, BrowserPath: c.Bot.BrowserPath,
 			LobbyTimeoutMin: c.Bot.LobbyTimeoutMin, SilenceEndMin: c.Bot.SilenceEndMin, Headless: c.Bot.Headless},
 		Output:  OutputSettings{Dir: c.Output.Dir, RetentionDays: c.Output.RetentionDays, KeepAudio: c.Output.KeepAudio},
-		Secrets: SecretStatus{GatewayKey: secrets.IsSet(secrets.Gateway), AWS: secrets.IsSet(secrets.AWS)},
+		Secrets: SecretStatus{OpenRouterKey: secrets.IsSet(secrets.OpenRouter), GatewayKey: secrets.IsSet(secrets.Gateway), AWS: secrets.IsSet(secrets.AWS)},
 	}
 }
 
@@ -57,6 +59,9 @@ func (a *App) GetSettings() Settings {
 func (a *App) SaveSettings(s Settings) error {
 	if s.Gateway.BaseURL != "" && !strings.HasPrefix(s.Gateway.BaseURL, "https://") {
 		return i18n.Errorf(nil, "err.settings.gatewayUrl")
+	}
+	if s.Mode != config.ModeDemo && s.Mode != config.ModeProd {
+		return i18n.Errorf(nil, "err.settings.invalid")
 	}
 	switch s.Gateway.Auth {
 	case llm.AuthSigV4, llm.AuthAPIKey, llm.AuthBearer:
@@ -69,6 +74,10 @@ func (a *App) SaveSettings(s Settings) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	c := a.cfg
+	c.Mode = s.Mode
+	if m := strings.TrimSpace(s.OpenRouter.Model); m != "" {
+		c.OpenRouter.Model = m
+	}
 	c.Gateway.BaseURL = strings.TrimRight(strings.TrimSpace(s.Gateway.BaseURL), "/")
 	c.Gateway.Region, c.Gateway.ModelID, c.Gateway.Auth = strings.TrimSpace(s.Gateway.Region), strings.TrimSpace(s.Gateway.ModelID), s.Gateway.Auth
 	c.Transcribe.Region = strings.TrimSpace(s.Transcribe.Region)
@@ -97,6 +106,42 @@ func (a *App) SetGatewayKey(key string) error {
 
 func (a *App) DeleteGatewayKey() error { return secrets.Delete(secrets.Gateway) }
 
+// SetMode switches between DEMO and PROD and saves it.
+func (a *App) SetMode(mode string) error {
+	if mode != config.ModeDemo && mode != config.ModeProd {
+		return i18n.Errorf(nil, "err.settings.invalid")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.session != nil {
+		return i18n.Errorf(nil, "err.busy")
+	}
+	c := a.cfg
+	c.Mode = mode
+	if err := config.Save(config.Path(), c); err != nil {
+		return i18n.Errorf(err, "err.config.save", err.Error())
+	}
+	a.cfg = c
+	return nil
+}
+
+// Mode returns the current mode ("demo" | "prod").
+func (a *App) Mode() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg.Mode
+}
+
+// SetOpenRouterKey stores the OpenRouter API key (DEMO) in Credential Manager.
+func (a *App) SetOpenRouterKey(key string) error {
+	if err := secrets.Set(secrets.OpenRouter, strings.TrimSpace(key)); err != nil {
+		return i18n.Errorf(err, "err.secret.save")
+	}
+	return nil
+}
+
+func (a *App) DeleteOpenRouterKey() error { return secrets.Delete(secrets.OpenRouter) }
+
 // SetAWSCredentials stores the AWS keys used by Transcribe (and Bedrock with sigv4).
 func (a *App) SetAWSCredentials(accessKeyID, secretAccessKey, sessionToken string) error {
 	err := secrets.SetAWS(secrets.AWSCredentials{
@@ -112,8 +157,9 @@ func (a *App) SetAWSCredentials(accessKeyID, secretAccessKey, sessionToken strin
 
 func (a *App) DeleteAWSCredentials() error { return secrets.Delete(secrets.AWS) }
 
-// TestGateway sends a tiny structured-output request to the configured model.
-func (a *App) TestGateway() error {
+// TestAI sends a tiny structured-output request to the current mode's model
+// (OpenRouter in DEMO, Bedrock in PROD).
+func (a *App) TestAI() error {
 	ctx, cancel := context.WithTimeout(a.ctx, 60*time.Second)
 	defer cancel()
 	c, err := a.newLLM(ctx)

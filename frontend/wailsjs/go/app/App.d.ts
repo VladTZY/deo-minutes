@@ -12,19 +12,31 @@ export function DeleteGatewayKey():Promise<void>;
 
 export function DeleteHistory(arg1:string):Promise<void>;
 
+export function DeleteOpenRouterKey():Promise<void>;
+
+export function Generate(arg1:string):Promise<void>;
+
 export function GetSettings():Promise<app.Settings>;
 
 export function History():Promise<Array<app.HistoryItem>>;
 
-export function OpenPath(arg1:string):Promise<void>;
+export function ImportAudio(arg1:string,arg2:number):Promise<string>;
 
-export function Resume(arg1:string):Promise<void>;
+export function LocalStatus():Promise<app.LocalStatus>;
+
+export function Mode():Promise<string>;
+
+export function OpenPath(arg1:string):Promise<void>;
 
 export function SaveSettings(arg1:app.Settings):Promise<void>;
 
 export function SetAWSCredentials(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetGatewayKey(arg1:string):Promise<void>;
+
+export function SetMode(arg1:string):Promise<void>;
+
+export function SetOpenRouterKey(arg1:string):Promise<void>;
 
 export function Start(arg1:app.StartRequest):Promise<void>;
 
@@ -34,9 +46,13 @@ export function Stop():Promise<void>;
 
 export function SuggestMeetingNo(arg1:string):Promise<number>;
 
-export function TestGateway():Promise<void>;
+export function TestAI():Promise<void>;
 
 export function TestTranscribe():Promise<void>;
+
+export function Transcribe(arg1:string):Promise<void>;
+
+export function Transcript(arg1:string):Promise<Array<string>>;
 
 export function Translations():Promise<Record<string, string>>;
 

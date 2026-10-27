@@ -60,14 +60,34 @@ export namespace app {
 	        this.auth = source["auth"];
 	    }
 	}
+	export class Steps {
+	    recorded: boolean;
+	    transcribed: boolean;
+	    generated: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Steps(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.recorded = source["recorded"];
+	        this.transcribed = source["transcribed"];
+	        this.generated = source["generated"];
+	    }
+	}
 	export class HistoryItem {
 	    id: string;
 	    date: string;
 	    project: string;
 	    meetingNo: number;
+	    mode: string;
+	    imported: string;
 	    excelPath: string;
 	    counts: Counts;
-	    canResume: boolean;
+	    steps: Steps;
+	    canTranscribe: boolean;
+	    canGenerate: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new HistoryItem(source);
@@ -79,9 +99,13 @@ export namespace app {
 	        this.date = source["date"];
 	        this.project = source["project"];
 	        this.meetingNo = source["meetingNo"];
+	        this.mode = source["mode"];
+	        this.imported = source["imported"];
 	        this.excelPath = source["excelPath"];
 	        this.counts = this.convertValues(source["counts"], Counts);
-	        this.canResume = source["canResume"];
+	        this.steps = this.convertValues(source["steps"], Steps);
+	        this.canTranscribe = source["canTranscribe"];
+	        this.canGenerate = source["canGenerate"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -101,6 +125,36 @@ export namespace app {
 		    }
 		    return a;
 		}
+	}
+	export class LocalStatus {
+	    whisperFound: boolean;
+	    modelFound: boolean;
+	    vadFound: boolean;
+	    modelPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.whisperFound = source["whisperFound"];
+	        this.modelFound = source["modelFound"];
+	        this.vadFound = source["vadFound"];
+	        this.modelPath = source["modelPath"];
+	    }
+	}
+	export class OpenRouterSettings {
+	    model: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenRouterSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	    }
 	}
 	export class OutputSettings {
 	    dir: string;
@@ -155,6 +209,7 @@ export namespace app {
 		}
 	}
 	export class SecretStatus {
+	    openRouterKey: boolean;
 	    gatewayKey: boolean;
 	    aws: boolean;
 	
@@ -164,6 +219,7 @@ export namespace app {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.openRouterKey = source["openRouterKey"];
 	        this.gatewayKey = source["gatewayKey"];
 	        this.aws = source["aws"];
 	    }
@@ -183,6 +239,8 @@ export namespace app {
 	    }
 	}
 	export class Settings {
+	    mode: string;
+	    openrouter: OpenRouterSettings;
 	    gateway: GatewaySettings;
 	    transcribe: TranscribeSettings;
 	    bot: BotSettings;
@@ -195,6 +253,8 @@ export namespace app {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.openrouter = this.convertValues(source["openrouter"], OpenRouterSettings);
 	        this.gateway = this.convertValues(source["gateway"], GatewaySettings);
 	        this.transcribe = this.convertValues(source["transcribe"], TranscribeSettings);
 	        this.bot = this.convertValues(source["bot"], BotSettings);
@@ -258,6 +318,10 @@ export namespace app {
 	}
 	export class Status {
 	    state: string;
+	    sessionId: string;
+	    mode: string;
+	    progress: number;
+	    steps: Steps;
 	    label: string;
 	    startedAt: number;
 	    participants: number;
@@ -273,6 +337,10 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
+	        this.sessionId = source["sessionId"];
+	        this.mode = source["mode"];
+	        this.progress = source["progress"];
+	        this.steps = this.convertValues(source["steps"], Steps);
 	        this.label = source["label"];
 	        this.startedAt = source["startedAt"];
 	        this.participants = source["participants"];
@@ -300,6 +368,7 @@ export namespace app {
 		    return a;
 		}
 	}
+	
 
 }
 

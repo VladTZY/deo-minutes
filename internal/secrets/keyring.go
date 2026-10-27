@@ -15,8 +15,9 @@ const service = "DEOMinutes"
 
 // Known credential names.
 const (
-	Gateway = "gateway" // bearer key for the Bedrock gateway
-	AWS     = "aws"     // JSON-encoded AWSCredentials for Transcribe
+	Gateway    = "gateway"    // bearer key for the Bedrock gateway (PROD)
+	OpenRouter = "openrouter" // OpenRouter API key (DEMO)
+	AWS        = "aws"        // JSON-encoded AWSCredentials for Transcribe
 )
 
 var ErrNotFound = errors.New("secret neconfigurat")

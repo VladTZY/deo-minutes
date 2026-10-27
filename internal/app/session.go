@@ -15,16 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-
 	"deo-minutes/internal/audio"
 	"deo-minutes/internal/bot"
 	"deo-minutes/internal/config"
 	"deo-minutes/internal/export"
 	"deo-minutes/internal/i18n"
-	"deo-minutes/internal/llm"
 	"deo-minutes/internal/minutes"
-	"deo-minutes/internal/secrets"
 	"deo-minutes/internal/speakers"
 	"deo-minutes/internal/stt"
 )
@@ -34,19 +30,24 @@ const (
 	metaFile       = "session.json"
 	transcriptFile = "transcript.jsonl"
 	audioFile      = "audio.pcm"
+	marksFile      = "audio_marks.jsonl" // byte offset → capture time, per chunk
+	rosterFile     = "roster.jsonl"      // who was speaking, every ~500 ms
 	quietRMS       = 0.005
 	maxMeeting     = 5 * time.Hour // hard stop, also caps disk use (~576 MB of audio)
 	maxNames       = 200
 )
 
-// sessionMeta is persisted so a crashed or failed session can be resumed.
+// sessionMeta is persisted so every step can run (again) later.
 type sessionMeta struct {
 	ID           string    `json:"id"`
+	Mode         string    `json:"mode"`
 	Project      string    `json:"project"`
 	MeetingNo    int       `json:"meeting_no"`
 	PreparedBy   string    `json:"prepared_by"`
 	Started      time.Time `json:"started"`
 	Participants []string  `json:"participants"`
+	BotName      string    `json:"bot_name"`
+	Imported     string    `json:"imported,omitempty"` // file name when created from an imported recording
 	ExcelPath    string    `json:"excel_path,omitempty"`
 	Counts       Counts    `json:"counts"`
 }
@@ -57,10 +58,14 @@ type transcriptLine struct {
 	Text    string `json:"text"`
 }
 
+type rosterLine struct {
+	TSMS     int64    `json:"ts_ms"`
+	Speakers []string `json:"speakers"`
+}
+
 type session struct {
 	meta   sessionMeta
 	dir    string
-	cancel context.CancelFunc
 	stopCh chan struct{}
 	once   sync.Once
 }
@@ -70,7 +75,9 @@ func (s *session) stop() { s.once.Do(func() { close(s.stopCh) }) }
 
 var sessionIDRe = regexp.MustCompile(`^\d{8}-\d{6}$`)
 
-// Start validates the form and starts a meeting session in the background.
+// Start validates the form and starts recording a meeting in the background.
+// PROD continues automatically to the Excel; DEMO stops after recording and
+// waits for the Transcribe and Generate buttons.
 func (a *App) Start(req StartRequest) error {
 	link, err := bot.ParseLink(req.Link)
 	if err != nil {
@@ -83,9 +90,14 @@ func (a *App) Start(req StartRequest) error {
 	if req.MeetingNo < 1 {
 		return i18n.Errorf(nil, "err.meetingNo.invalid")
 	}
-	openSTT, err := a.newTranscriber()
-	if err != nil {
-		return err
+	a.mu.Lock()
+	mode := a.cfg.Mode
+	a.mu.Unlock()
+	var openSTT stt.Opener
+	if mode == config.ModeProd {
+		if openSTT, err = a.newTranscriber(); err != nil {
+			return err
+		}
 	}
 
 	a.mu.Lock()
@@ -98,12 +110,7 @@ func (a *App) Start(req StartRequest) error {
 		a.cfg.Last.MeetingNoByProject[req.Project] = req.MeetingNo
 	}
 	cfg := a.cfg
-	now := time.Now()
-	s := &session{
-		meta:   sessionMeta{ID: now.Format("20060102-150405"), Project: req.Project, MeetingNo: req.MeetingNo, PreparedBy: req.PreparedBy, Started: now},
-		stopCh: make(chan struct{}),
-	}
-	s.dir = filepath.Join(config.SessionsDir(), s.meta.ID)
+	s := newSession(sessionMeta{Mode: mode, Project: req.Project, MeetingNo: req.MeetingNo, PreparedBy: req.PreparedBy, BotName: cfg.Bot.DisplayName})
 	a.session = s
 	a.mu.Unlock()
 
@@ -117,8 +124,9 @@ func (a *App) Start(req StartRequest) error {
 	_ = writeJSON(filepath.Join(s.dir, metaFile), s.meta)
 
 	ctx, cancel := context.WithCancel(a.ctx)
-	s.cancel = cancel
-	a.setStatus(func(st *Status) { *st = Status{State: StateStartingBrowser, CanStop: true} })
+	a.setStatus(func(st *Status) {
+		*st = Status{State: StateStartingBrowser, CanStop: true, SessionID: s.meta.ID, Mode: mode}
+	})
 	go func() {
 		defer cancel()
 		pwd := req.Password
@@ -139,7 +147,13 @@ func (a *App) Start(req StartRequest) error {
 	return nil
 }
 
-// Stop leaves the meeting; the minutes are still generated from what was captured.
+func newSession(meta sessionMeta) *session {
+	now := time.Now()
+	meta.ID, meta.Started = now.Format("20060102-150405"), now
+	return &session{meta: meta, dir: filepath.Join(config.SessionsDir(), meta.ID), stopCh: make(chan struct{})}
+}
+
+// Stop leaves the meeting; what was recorded so far is kept.
 func (a *App) Stop() error {
 	a.mu.Lock()
 	s := a.session
@@ -179,14 +193,14 @@ func (a *App) warn(msg string) {
 	})
 }
 
-// endSession clears the running session and sets the final state.
+// endSession clears the running session and, on error, shows it.
 func (a *App) endSession(err error) {
 	a.mu.Lock()
 	a.session = nil
 	a.mu.Unlock()
 	if err != nil {
 		slog.Error("session failed", "err", err)
-		a.setStatus(func(st *Status) { st.State, st.Error, st.CanStop = StateError, userMessage(err), false })
+		a.setStatus(func(st *Status) { st.State, st.Error, st.CanStop, st.Progress = StateError, userMessage(err), false, 0 })
 	}
 }
 
@@ -200,6 +214,7 @@ func (a *App) run(ctx context.Context, s *session, cfg config.Config, opts bot.O
 		}
 	}
 	joinCtx, joinCancel := context.WithCancel(ctx)
+	defer joinCancel()
 	go func() { // Stop pressed while still joining
 		select {
 		case <-s.stopCh:
@@ -209,7 +224,6 @@ func (a *App) run(ctx context.Context, s *session, cfg config.Config, opts bot.O
 	}()
 	bs, err := bot.Join(joinCtx, opts)
 	if err != nil {
-		joinCancel()
 		if errors.Is(err, context.Canceled) {
 			a.endSession(nil)
 			a.setStatus(func(st *Status) { *st = Status{State: StateIdle} })
@@ -218,8 +232,6 @@ func (a *App) run(ctx context.Context, s *session, cfg config.Config, opts bot.O
 		a.endSession(err)
 		return
 	}
-	// The join context only guarded the join; the session lives on ctx.
-	defer joinCancel()
 
 	participants, err := a.record(ctx, s, cfg, bs, openSTT)
 	if err != nil {
@@ -228,65 +240,53 @@ func (a *App) run(ctx context.Context, s *session, cfg config.Config, opts bot.O
 	}
 	s.meta.Participants = participants
 	_ = writeJSON(filepath.Join(s.dir, metaFile), s.meta)
-	if !cfg.Output.KeepAudio {
-		_ = os.Remove(filepath.Join(s.dir, audioFile))
+
+	if s.meta.Mode == config.ModeProd {
+		a.setStatus(func(st *Status) { st.Steps = a.steps(s.dir, s.meta) }) // recorded + transcribed live
+		if !cfg.Output.KeepAudio {
+			_ = os.Remove(filepath.Join(s.dir, audioFile))
+		}
+		a.generate(ctx, s)
+		return
 	}
-	a.finish(ctx, s)
+	// DEMO: stop here; the user runs Transcribe, then Generate.
+	a.mu.Lock()
+	a.session = nil
+	a.mu.Unlock()
+	a.setStatus(func(st *Status) {
+		st.State, st.CanStop = StateRecorded, false
+		st.Steps = a.steps(s.dir, s.meta)
+	})
 }
 
-// record captures audio, transcribes it live and tracks speakers until the
-// meeting ends, Stop is pressed, or the meeting is silent for too long.
+// record captures audio and speaker snapshots to disk until the meeting
+// ends, Stop is pressed, the meeting is silent too long or hits maxMeeting.
+// In PROD it also transcribes live with Amazon Transcribe.
 func (a *App) record(ctx context.Context, s *session, cfg config.Config, bs *bot.Session, openSTT stt.Opener) ([]string, error) {
 	recStart := time.Now()
 	a.setStatus(func(st *Status) { st.State, st.StartedAt = StateRecording, recStart.UnixMilli() })
 
-	pcm, err := os.OpenFile(filepath.Join(s.dir, audioFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		_ = bs.Leave()
-		return nil, i18n.Errorf(err, "err.unexpected")
+	files := map[string]*os.File{}
+	for _, name := range []string{audioFile, marksFile, rosterFile} {
+		f, err := os.OpenFile(filepath.Join(s.dir, name), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			_ = bs.Leave()
+			return nil, i18n.Errorf(err, "err.unexpected")
+		}
+		defer func() { _ = f.Close() }()
+		files[name] = f
 	}
-	defer func() { _ = pcm.Close() }()
-	tf, err := os.OpenFile(filepath.Join(s.dir, transcriptFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		_ = bs.Leave()
-		return nil, i18n.Errorf(err, "err.unexpected")
-	}
-	defer func() { _ = tf.Close() }()
+	pcm, marks, rosterOut := files[audioFile], json.NewEncoder(files[marksFile]), json.NewEncoder(files[rosterFile])
+	var written int64
 
+	live := openSTT != nil
+	var chunks chan stt.Chunk
+	var liveDone <-chan error
 	tl := speakers.NewTimeline(cfg.Bot.DisplayName)
-	builder := &speakers.Builder{TL: tl}
-	streamer := &stt.Streamer{
-		Open:        openSTT,
-		Rotate:      time.Duration(cfg.Transcribe.RotateMin) * time.Minute,
-		OnReconnect: func(error) { a.warn(i18n.T("err.transcribe.network")) },
+	if live {
+		chunks = make(chan stt.Chunk, 256)
+		liveDone = a.liveTranscribe(ctx, s, cfg, tl, openSTT, chunks, recStart)
 	}
-	sttCtx, sttCancel := context.WithCancel(ctx)
-	defer sttCancel()
-	chunks := make(chan stt.Chunk, 256)
-	words, wait := streamer.Run(sttCtx, chunks)
-
-	var t0 time.Time // meeting time zero: first audio chunk
-	var t0Mu sync.Mutex
-	getT0 := func() time.Time { t0Mu.Lock(); defer t0Mu.Unlock(); return t0 }
-	writeLine := func(l *speakers.Line) {
-		if l == nil {
-			return
-		}
-		tlx := transcriptLine{AtMS: l.Start.Sub(getT0()).Milliseconds(), Speaker: l.Speaker, Text: l.Text}
-		b, _ := json.Marshal(tlx)
-		_, _ = tf.Write(append(b, '\n'))
-		if a.emit != nil {
-			a.emit(EventTranscript, l.Format(getT0()))
-		}
-	}
-	wordsDone := make(chan struct{})
-	go func() {
-		defer close(wordsDone)
-		for w := range words {
-			writeLine(builder.Add(w))
-		}
-		writeLine(builder.Flush())
-	}()
 
 	names := map[string]bool{}
 	botName := strings.ToLower(strings.TrimSpace(cfg.Bot.DisplayName))
@@ -300,22 +300,22 @@ loop:
 	for {
 		select {
 		case c := <-bs.Audio():
-			t0Mu.Lock()
-			if t0.IsZero() {
-				t0 = c.TS
-			}
-			t0Mu.Unlock()
-			_, _ = pcm.Write(c.PCM)
+			_ = marks.Encode(stt.Mark{Off: written, TS: c.TS})
+			n, _ := pcm.Write(c.PCM)
+			written += int64(n)
 			if audio.RMS(c.PCM) >= quietRMS {
 				lastSound = time.Now()
 			}
-			select {
-			case chunks <- stt.Chunk{TS: c.TS, PCM: c.PCM}:
-			case <-ctx.Done():
-				break loop
+			if live {
+				select {
+				case chunks <- stt.Chunk{TS: c.TS, PCM: c.PCM}:
+				case <-ctx.Done():
+					break loop
+				}
 			}
 		case r := <-bs.RosterUpdates():
 			tl.Add(r.TS, r.Speakers)
+			_ = rosterOut.Encode(rosterLine{TSMS: r.TS.UnixMilli(), Speakers: r.Speakers})
 			changed := false
 			for _, n := range r.Participants {
 				if n != "" && strings.ToLower(n) != botName && !names[n] && len(names) < maxNames {
@@ -352,14 +352,12 @@ loop:
 	} else {
 		_ = bs.Close()
 	}
-	a.setStatus(func(st *Status) { st.State, st.CanStop = StateFinishingTranscript, false })
-	close(chunks)
-	<-wordsDone
-	if err := wait(); err != nil && !errors.Is(err, context.Canceled) {
-		if errors.Is(err, stt.ErrFatal) {
-			return nil, i18n.Errorf(err, "err.transcribe.auth")
+	if live {
+		a.setStatus(func(st *Status) { st.State, st.CanStop = StateFinishingTranscript, false })
+		close(chunks)
+		if err := <-liveDone; err != nil {
+			return nil, err
 		}
-		return nil, i18n.Errorf(err, "err.transcribe.failed", "conexiune eșuată")
 	}
 	list := make([]string, 0, len(names))
 	for n := range names {
@@ -369,9 +367,74 @@ loop:
 	return list, nil
 }
 
-// finish turns the saved transcript into the Excel workbook.
-func (a *App) finish(ctx context.Context, s *session) {
-	a.setStatus(func(st *Status) { st.State, st.CanStop = StateGenerating, false })
+// liveTranscribe streams chunks to Amazon Transcribe (PROD) and writes the
+// transcript incrementally. The returned channel yields the final error.
+func (a *App) liveTranscribe(ctx context.Context, s *session, cfg config.Config, tl *speakers.Timeline, openSTT stt.Opener, chunks <-chan stt.Chunk, t0 time.Time) <-chan error {
+	done := make(chan error, 1)
+	streamer := &stt.Streamer{
+		Open:        openSTT,
+		Rotate:      time.Duration(cfg.Transcribe.RotateMin) * time.Minute,
+		OnReconnect: func(error) { a.warn(i18n.T("err.transcribe.network")) },
+	}
+	words, wait := streamer.Run(ctx, chunks)
+	go func() {
+		tw, err := newTranscriptWriter(filepath.Join(s.dir, transcriptFile), t0, a.emit)
+		if err != nil {
+			for range words {
+			}
+			done <- i18n.Errorf(err, "err.unexpected")
+			return
+		}
+		b := &speakers.Builder{TL: tl}
+		for w := range words {
+			tw.write(b.Add(w))
+		}
+		tw.write(b.Flush())
+		_ = tw.close()
+		err = wait()
+		switch {
+		case err == nil || errors.Is(err, context.Canceled):
+			done <- nil
+		case errors.Is(err, stt.ErrFatal):
+			done <- i18n.Errorf(err, "err.transcribe.auth")
+		default:
+			done <- i18n.Errorf(err, "err.transcribe.failed", "conexiune eșuată")
+		}
+	}()
+	return done
+}
+
+// transcriptWriter writes lines with times relative to the recording start.
+type transcriptWriter struct {
+	f    *os.File
+	t0   time.Time
+	emit func(string, any)
+}
+
+func newTranscriptWriter(path string, t0 time.Time, emit func(string, any)) (*transcriptWriter, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	return &transcriptWriter{f: f, t0: t0, emit: emit}, nil
+}
+
+func (w *transcriptWriter) write(l *speakers.Line) {
+	if l == nil {
+		return
+	}
+	b, _ := json.Marshal(transcriptLine{AtMS: l.Start.Sub(w.t0).Milliseconds(), Speaker: l.Speaker, Text: l.Text})
+	_, _ = w.f.Write(append(b, '\n'))
+	if w.emit != nil {
+		w.emit(EventTranscript, l.Format(w.t0))
+	}
+}
+
+func (w *transcriptWriter) close() error { return w.f.Close() }
+
+// generate turns the saved transcript into the Excel workbook.
+func (a *App) generate(ctx context.Context, s *session) {
+	a.setStatus(func(st *Status) { st.State, st.CanStop, st.Progress = StateGenerating, false, 0 })
 	t, err := readTranscript(filepath.Join(s.dir, transcriptFile))
 	if err != nil || len(t) == 0 {
 		a.endSession(i18n.Errorf(err, "warn.transcriptEmpty"))
@@ -439,130 +502,8 @@ func (a *App) finish(ctx context.Context, s *session) {
 	a.setStatus(func(st *Status) {
 		st.State = StateDone
 		st.Result = &Result{ExcelPath: excelPath, TranscriptPath: txtPath, Folder: outDir, Counts: counts}
+		st.Steps = a.steps(s.dir, s.meta)
 	})
-}
-
-// Resume generates the Excel for a past session whose transcript exists
-// (e.g. the gateway failed or the app was closed during generation).
-func (a *App) Resume(id string) error {
-	if !sessionIDRe.MatchString(id) {
-		return i18n.Errorf(nil, "err.unexpected")
-	}
-	dir := filepath.Join(config.SessionsDir(), id)
-	var meta sessionMeta
-	if err := readJSON(filepath.Join(dir, metaFile), &meta); err != nil {
-		return i18n.Errorf(err, "err.unexpected")
-	}
-	a.mu.Lock()
-	if a.session != nil {
-		a.mu.Unlock()
-		return i18n.Errorf(nil, "err.busy")
-	}
-	s := &session{meta: meta, dir: dir, stopCh: make(chan struct{})}
-	a.session = s
-	a.mu.Unlock()
-	a.setStatus(func(st *Status) { *st = Status{State: StateGenerating} })
-	go a.finish(a.ctx, s)
-	return nil
-}
-
-// History lists past sessions, newest first.
-func (a *App) History() []HistoryItem {
-	entries, err := os.ReadDir(config.SessionsDir())
-	if err != nil {
-		return nil
-	}
-	a.mu.Lock()
-	running := ""
-	if a.session != nil {
-		running = a.session.meta.ID
-	}
-	a.mu.Unlock()
-	var out []HistoryItem
-	for _, e := range entries {
-		if !e.IsDir() || !sessionIDRe.MatchString(e.Name()) {
-			continue
-		}
-		var m sessionMeta
-		if readJSON(filepath.Join(config.SessionsDir(), e.Name(), metaFile), &m) != nil {
-			continue
-		}
-		_, terr := os.Stat(filepath.Join(config.SessionsDir(), e.Name(), transcriptFile))
-		out = append(out, HistoryItem{
-			ID: m.ID, Date: m.Started.Format("02.01.2006 15:04"), Project: m.Project, MeetingNo: m.MeetingNo,
-			ExcelPath: m.ExcelPath, Counts: m.Counts,
-			CanResume: m.ExcelPath == "" && terr == nil && m.ID != running,
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
-	return out
-}
-
-// DeleteHistory removes a session's working files (transcript, audio). The
-// Excel and transcript in the output folder belong to the user and stay.
-func (a *App) DeleteHistory(id string) error {
-	if !sessionIDRe.MatchString(id) {
-		return i18n.Errorf(nil, "err.unexpected")
-	}
-	a.mu.Lock()
-	running := a.session != nil && a.session.meta.ID == id
-	a.mu.Unlock()
-	if running {
-		return i18n.Errorf(nil, "err.busy")
-	}
-	return os.RemoveAll(filepath.Join(config.SessionsDir(), id))
-}
-
-// cleanupOld deletes session working folders older than the retention period.
-func (a *App) cleanupOld() {
-	a.mu.Lock()
-	days := a.cfg.Output.RetentionDays
-	a.mu.Unlock()
-	if days < 1 {
-		return
-	}
-	cutoff := time.Now().AddDate(0, 0, -days)
-	entries, _ := os.ReadDir(config.SessionsDir())
-	for _, e := range entries {
-		t, err := time.ParseInLocation("20060102-150405", e.Name(), time.Local)
-		if err == nil && t.Before(cutoff) {
-			_ = os.RemoveAll(filepath.Join(config.SessionsDir(), e.Name()))
-		}
-	}
-}
-
-func (a *App) newLLM(ctx context.Context) (llm.Client, error) {
-	a.mu.Lock()
-	g := a.cfg.Gateway
-	a.mu.Unlock()
-	cfg := llm.Config{BaseURL: g.BaseURL, Region: g.Region, Model: g.ModelID, FallbackModel: g.FallbackModel,
-		Auth: g.Auth, Effort: anthropic.OutputConfigEffort(g.Effort)}
-	switch g.Auth {
-	case llm.AuthSigV4:
-		creds, err := secrets.GetAWS()
-		if err != nil {
-			return nil, i18n.Errorf(err, "err.gateway.notConfigured")
-		}
-		cfg.AWS = creds
-	default:
-		key, err := secrets.Get(secrets.Gateway)
-		if err != nil {
-			return nil, i18n.Errorf(err, "err.gateway.notConfigured")
-		}
-		cfg.Key = key
-	}
-	return llm.NewAnthropic(ctx, cfg)
-}
-
-func (a *App) newTranscriber() (stt.Opener, error) {
-	creds, err := secrets.GetAWS()
-	if err != nil {
-		return nil, i18n.Errorf(err, "err.transcribe.creds")
-	}
-	a.mu.Lock()
-	t := a.cfg.Transcribe
-	a.mu.Unlock()
-	return stt.NewTranscribeOpener(stt.TranscribeConfig{Region: t.Region, Language: t.Language, MultiLanguage: t.MultiLanguage}, creds), nil
 }
 
 func readTranscript(path string) (minutes.Transcript, error) {
@@ -582,6 +523,25 @@ func readTranscript(path string) (minutes.Transcript, error) {
 		t = append(t, minutes.Line{At: time.Duration(l.AtMS) * time.Millisecond, Speaker: l.Speaker, Text: l.Text})
 	}
 	return t, sc.Err()
+}
+
+// readJSONL decodes one value per line, skipping torn lines.
+func readJSONL[T any](path string) ([]T, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	var out []T
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for sc.Scan() {
+		var v T
+		if json.Unmarshal(sc.Bytes(), &v) == nil {
+			out = append(out, v)
+		}
+	}
+	return out, sc.Err()
 }
 
 func writeJSON(path string, v any) error {

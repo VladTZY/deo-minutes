@@ -59,7 +59,8 @@ func TestAllReferencedKeysExist(t *testing.T) {
 			return err
 		}
 		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
-			if !Has(m[1]) && !strings.HasSuffix(p, "_test.go") {
+			// A key ending in "." is a prefix completed at run time ("state." + s).
+			if !Has(m[1]) && !strings.HasSuffix(m[1], ".") && !strings.HasSuffix(p, "_test.go") {
 				missing = append(missing, p+": "+m[1])
 			}
 		}

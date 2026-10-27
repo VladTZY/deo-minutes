@@ -101,6 +101,8 @@
   "err.gateway.failed": "Generarea minutei a eșuat: {0}",
   "err.excel.write": "Nu am putut salva fișierul Excel: {0}",
   "err.excel.locked": "Fișierul Excel este deschis în alt program. Închide-l și încearcă din nou.",
+  "err.settings.gatewayUrl": "Adresa gateway-ului trebuie să înceapă cu https://.",
+  "err.settings.invalid": "Unele setări nu sunt valide. Verifică valorile introduse.",
   "err.config.save": "Nu am putut salva setările: {0}",
   "err.secret.save": "Nu am putut salva cheia în Windows Credential Manager.",
   "err.unexpected": "A apărut o eroare neașteptată. Detalii în jurnal.",

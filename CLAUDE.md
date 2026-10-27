@@ -12,6 +12,10 @@ Gate before every commit, all must pass:
 - `go test ./...`
 - `wails build -platform windows/amd64 -trimpath -ldflags "-s -w -X main.version=<v>"` → `build/bin/DEOMinute.exe`
 
+## Modes
+
+DEMO (default) = local whisper.cpp + Romanian model, then OpenRouter, step by step. PROD = Amazon Transcribe live + Bedrock, automatic. See PLAN.md §2.1. The local transcriber is not in git: `scripts/prepare-local-stt.sh` builds `build/dist/{whisper,models}` (needs `HF_TOKEN` for the gated Romanian model, or `MODEL=stock`), and `scripts/build-windows.sh` packs it into the zip. Real-whisper test: `DEO_WHISPER_EXE=… DEO_WHISPER_MODEL=… DEO_TEST_PCM=… go test -run TestLocalWhisper ./internal/stt`.
+
 ## Rules that are easy to break
 
 - **No admin rights, no cgo.** Pure Go only; write only under `config.AppDataDir()` and the output folder. The manifest stays `asInvoker`.

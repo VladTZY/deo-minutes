@@ -48,6 +48,17 @@ with English, speaker attribution required.
 | D7 | Output: **fill the XLSX template with `github.com/xuri/excelize/v2`** (pure Go, maintained) | Keeps the company format (C8). | If excelize damages tables/styles (checked in S4), patch the sheet/table XML inside the zip directly (`archive/zip` + `encoding/xml`). |
 | D8 | 4-hour meetings: Transcribe stream rotated every 60 min at a quiet moment. LLM extraction = **specialist passes** (user, 2026-10-27: one shot is too big): one focused pass per register over the whole transcript (actions first to write the prompt cache, then decisions/risks/changes in parallel, then interdependencies with the validated actions/risks to link). Transcript is a cached shared prefix, so 5 passes cost far less than 5 full reads. | Focused passes raise recall on long meetings; Claude's 1M context fits 4 h (≈ 60-80k tokens) whole, so dedupe across the meeting stays inside each pass. | Above `SinglePassTokens` (300k est.) or if the gateway caps context: 60-min windows (3-min overlap), specialist passes per window, then one merge call. |
 
+### 2.1 Modes (added 2026-10-27, user request)
+
+| | DEMO | PROD |
+|---|---|---|
+| Transcription | **Local**, after the meeting: whisper.cpp v1.9.5 CPU (`whisper-cli.exe`, official build b5454) + `eek/whisper-turbo-ro-en` (Whisper large-v3-turbo fine-tuned for spoken Romanian + English, MIT) converted to ggml q5_0 + silero VAD | Amazon Transcribe Streaming, live |
+| AI (Excel) | **OpenRouter** `anthropic/claude-opus-5.5` (structured outputs, `require_parameters`, cached transcript prefix) | Claude on Bedrock (Mantle) |
+| Flow | **Step by step**: ① record → ② Transcrie → ③ Generează minuta, each its own button, each re-runnable; WAV import to test ② and ③ without a meeting | Automatic after Pornește |
+| Default | yes (no AWS account yet) | |
+
+Both modes record `audio.pcm`, `audio_marks.jsonl` (byte offset → capture time) and `roster.jsonl` (speaker snapshots), so any session can be (re)transcribed locally and speaker names still come from Webex.
+
 ## 3. Architecture
 
 ```
@@ -277,6 +288,17 @@ Gates: if S1 fails on both Edge and Chrome for Testing → stop, ask the user ab
 - [ ] **T8.3** *(2026-10-27: transcription path done: 4 h / 14,400 chunks with a network drop and 24 rotations, all words once and in order, heap ≈ 2 MB. Full end-to-end replay with a real browser still to do.)* Load test: replay a 4 h, 50-speaker synthetic session (recorded audio looped + generated speaker events) end to end; memory stays < 500 MB, Excel ready < 5 min after end.
 - [ ] **T8.4** Manual acceptance (section 8).
 
+### M10: DEMO / PROD modes
+
+- [x] **T10.1** Config `mode`, OpenRouter settings, local STT paths; secrets `openrouter`.
+- [x] **T10.2** `llm.OpenRouter` (streaming SSE, strict json_schema, reasoning effort, cache_control, Romanian errors incl. 402 no credit); tested against a fake endpoint.
+- [x] **T10.3** `stt.Local`: whisper-cli in 10-min pieces with 2 s seams, word segments (`-ml 1 -sow`), `-mc 0`, VAD, VAD timing repair from the audio, progress, hidden console, VC++ runtime detection. Verified on this Mac with real whisper.cpp on Romanian speech (Ioana TTS): text exact incl. diacritics, no text in 20 s silence, words placed correctly after the pause, seams without duplicates; my numpy converter + q5_0 gives identical text to whisper.cpp's official ggml.
+- [x] **T10.4** App steps: Transcribe(id), Generate(id), Transcript(id), ImportAudio, History step flags; DEMO stops at "recorded".
+- [x] **T10.5** `scripts/prepare-local-stt.sh` (pinned + checksummed downloads, conversion, quantization) and packaging into the portable zip (`whisper\`, `models\`).
+- [ ] **T10.6** UI redesign for ease of use with mode switch and 3-step flow (sub-agent).
+- [ ] **T10.7** **BLOCKED(Q17)** Build the Romanian model: accept `eek/whisper-turbo-ro-en` terms on Hugging Face, then `HF_TOKEN=… ./scripts/prepare-local-stt.sh`.
+- [ ] **T10.8** Measure local transcription speed on a real target laptop (this Mac's i9: ~0.5× real time on speech with 15 threads; 4-core laptops will be slower, roughly the meeting's length or more).
+
 ### M9: Later (not v1)
 
 - [ ] **T9.2** `Team` column (Q14): person → team mapping editable in Setări, filled from `Responsible`.
@@ -333,6 +355,8 @@ tasks, and the Decision log.
 | Q13 | OPEN | Allowed values for: Action Item `Status`; Risk `Severity` and `Probability` (Low/Medium/High or 1-5?); Interdependency `Status`; Change impact columns; `Local/Call` (is it `Local` / `Call` / `No` = absent?). | 5.2, T4.4 | See 5.2 defaults |
 | Q14 | ANSWERED | **Leave `Team` (Action Item Register, col F) empty in v1.** Do not ask the LLM for it; do not fill it even if a team is spoken. Possible later: person → team mapping in Setări (T9.2). | — | — |
 | Q15 | ANSWERED (deferred) | Shared room devices are possible, but **out of scope for v1**. v1 labels lines with the Webex participant name (e.g. the room's name). Later: Transcribe speaker labels inside that participant ("Sala X (vorbitor 2)"), task T9.1. | — | — |
+| Q17 | OPEN | The best Romanian model (`eek/whisper-turbo-ro-en`, MIT) is gated on Hugging Face (automatic approval). Someone with an HF account must accept its terms once and provide a read token to the build (`HF_TOKEN`). Until then, `MODEL=stock` builds with stock Whisper large-v3-turbo (works, less accurate on conversational Romanian). | T10.7 | Stock model for testing |
+| Q18 | OPEN | Do the laptops have the Microsoft Visual C++ 2015-2022 x64 runtime (needed by whisper-cli.exe)? If not, provide the 3 DLLs to bundle (`VCRUNTIME_DIR`). | DEMO step 2 | Assume installed; app shows a clear error if not |
 | Q16 | ANSWERED | **No narrative summary.** Only the template sheets. | — | — |
 
 ### 9.2 AWS setup checklist (blocks live Transcribe; hand this to whoever owns AWS)
@@ -380,4 +404,5 @@ tasks, and the Decision log.
 | 2026-10-27 | M6/M7 | Session orchestrator + bindings committed; UI built by a sub-agent against the binding contract (`internal/app/types.go`). Session working files in `%LOCALAPPDATA%\DEOMinutes\sessions\<id>` (meta, transcript.jsonl, audio.pcm); Excel + transcript .txt in Documents; `meta.json` no longer written to Documents. Starting a meeting requires AWS keys (Transcribe); the AI step can fail and be resumed from Istoric once the gateway is configured. |
 | 2026-10-27 | T8.1 | Security review fixes: bot aborts if the main frame leaves `*.webex.com` and ignores binding data from other hosts; audio accepted only as exact 1 s chunks at ≤ 1.5× real time; roster names capped (100 chars, 200 people); 5 h hard meeting limit; evidence must be a contiguous ≥ 4-word quote within ±90 s (no bag-of-words, unparseable times rejected); prompt marks meeting data as data, never instructions; OpenPath opens only folders/.xlsx/.txt; transcript .txt never overwritten; logs keep error causes. Not done (documented): isolated-world injection for page.js (bindings must stay reachable; host check covers it). |
 | 2026-10-27 | deps | govulncheck: 3 reachable excelize advisories (GO-2026-6684/6688/6689, panics on malformed workbooks), fixed only in an untagged excelize commit. We parse only our own embedded template, so not attacker-reachable; staying on tagged v2.11.0, bump when v2.11.1 is tagged. |
+| 2026-10-27 | Modes | User: add DEMO (local Romanian transcriber + OpenRouter, step by step with a separate generate button) and PROD (AWS) switch; make the UI easy to use. Local STT runs after the meeting (CPU can't keep up live on 4 h). Rejected `TransferRapid/whisper-large-v3-turbo_ro` (CC-BY-NC, non-commercial) and BuzzASR/romanian (large-v3, ~6× slower on CPU). |
 | 2026-10-26 | Q7, Q9, Q10 | Own-company meetings, guests allowed, lobby on, no password; user informs participants; output to Documents. |

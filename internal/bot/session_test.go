@@ -258,3 +258,71 @@ func TestLaunchFallsBackToPort(t *testing.T) {
 		t.Fatalf("evaluate over port: %v %v", got, err)
 	}
 }
+
+// fakeWebexServer serves testdata/fakewebex.html.
+func fakeWebexServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	html, err := os.ReadFile("testdata/fakewebex.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(html)
+	}))
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// joinVia serves outer (with %s replaced by the fake client URL) and checks
+// that the bot gets into the meeting and fills the name.
+func joinVia(t *testing.T, outer string) {
+	if testing.Short() {
+		t.Skip("needs a browser")
+	}
+	if _, err := FindBrowser(""); err != nil {
+		t.Skip("no Edge/Chrome installed")
+	}
+	client := fakeWebexServer(t)
+	page := strings.ReplaceAll(outer, "%s", client.URL+"/?endAfter=20000")
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(page))
+	}))
+	defer front.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	s, err := Join(ctx, Options{
+		Link:         MeetingLink{URL: front.URL + "/", Password: "Parola123"},
+		DisplayName:  "Asistent Minute",
+		Headless:     true,
+		Selectors:    DefaultSelectors,
+		AllowedHosts: []string{"127.0.0.1"},
+		JoinTimeout:  45 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	entered, err := evalIn[map[string]any](s, s.activeContext(), "window.__entered")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entered["name"] != "Asistent Minute" {
+		t.Errorf("name not filled: %v", entered)
+	}
+}
+
+// TestJoinClientInCrossOriginIframe: the web client sits in an iframe from
+// another origin of the same site (as another webex.com subdomain would).
+func TestJoinClientInCrossOriginIframe(t *testing.T) {
+	joinVia(t, `<!doctype html><title>Meeting</title>
+		<iframe src="%s" style="width:1200px;height:700px" allow="microphone; camera; autoplay"></iframe>`)
+}
+
+// TestJoinClientInNewTab: "Join from browser" opens the client in a new tab.
+func TestJoinClientInNewTab(t *testing.T) {
+	joinVia(t, `<!doctype html><title>Meeting</title>
+		<a href="%s" target="_blank">Join from your browser</a>`)
+}

@@ -11,8 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,6 +98,12 @@ type Session struct {
 	done     chan struct{}
 	doneErr  error
 	once     sync.Once
+
+	// Child frames on allowed hosts (main-world contexts) and the context the
+	// bot acts in (0 = main frame); see frames.go.
+	framesMu sync.Mutex
+	frames   map[string]cdpruntime.ExecutionContextID // unique id -> id
+	active   cdpruntime.ExecutionContextID
 }
 
 const (
@@ -168,7 +172,7 @@ func (s *Session) JoinMeeting(ctx context.Context) error {
 		return err
 	}
 	notify(s.opts, StateInMeeting)
-	if _, err := eval[bool](s, fmt.Sprintf("window.__deoRosterStart(%s)", mustJSONString(s.opts.Selectors))); err != nil {
+	if _, err := evalIn[bool](s, s.activeContext(), fmt.Sprintf("window.__deoRosterStart(%s)", mustJSONString(s.opts.Selectors))); err != nil {
 		slog.Warn("roster start", "err", err)
 	}
 	go s.watch(ctx)
@@ -210,6 +214,7 @@ func (s *Session) prepare() error {
 	}); err != nil {
 		slog.Warn("deny camera", "err", err) // not fatal: the join flow also clicks "stop video"
 	}
+	s.trackFrames(ctx)
 	events := chromedp.Events(ctx, cdpruntime.BindingCalled)
 	go func() {
 		for ev, err := range events {
@@ -320,23 +325,7 @@ func (s *Session) hostOK() (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	u, err := url.Parse(href)
-	if err != nil {
-		return "", false
-	}
-	host := strings.ToLower(u.Hostname())
-	allowed := s.opts.AllowedHosts
-	if len(allowed) == 0 {
-		allowed = []string{"webex.com"}
-	}
-	for _, a := range allowed {
-		if u.Scheme == "https" || a != "webex.com" { // tests use http://127.0.0.1
-			if host == a || strings.HasSuffix(host, "."+a) {
-				return host, true
-			}
-		}
-	}
-	return host, false
+	return s.allowedURL(href)
 }
 
 // checkHost updates onWebex; a page that left the allowed hosts ends the session.
@@ -365,34 +354,23 @@ func eval[T any](s *Session, js string) (T, error) {
 	return chromedp.Run(ctx, chromedp.Evaluate[T](js))
 }
 
-func (s *Session) pageState() string {
-	st, err := eval[string](s, fmt.Sprintf("window.__deoPage ? window.__deoPage.state(%s) : 'loading'", mustJSON(s.opts.Selectors)))
-	if err != nil {
-		return "loading"
-	}
-	return st
-}
-
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 func (s *Session) click(needles []string) bool {
-	ok, _ := eval[bool](s, fmt.Sprintf("window.__deoPage.click(%s)", mustJSON(needles)))
-	return ok
+	return s.inFrames(fmt.Sprintf("!!window.__deoPage && window.__deoPage.click(%s)", mustJSON(needles)))
 }
 
 func (s *Session) fill(needles []string, value string) bool {
-	ok, _ := eval[bool](s, fmt.Sprintf("window.__deoPage.fill(%s, %s)", mustJSON(needles), mustJSON(value)))
-	return ok
+	return s.inFrames(fmt.Sprintf("!!window.__deoPage && window.__deoPage.fill(%s, %s)", mustJSON(needles), mustJSON(value)))
 }
 
 // clickUnless clicks the first match whose label contains none of skip
 // (e.g. "mute" but not "unmute").
 func (s *Session) clickUnless(needles, skip []string) bool {
-	js := fmt.Sprintf(`(() => { const P = window.__deoPage; const el = P.find("clickable", %s);
+	js := fmt.Sprintf(`(() => { const P = window.__deoPage; if (!P) return false; const el = P.find("clickable", %s);
 		if (!el) return false; const l = P.labelOf(el); if (%s.some((x) => l.includes(x))) return false; el.click(); return true; })()`,
 		mustJSON(needles), mustJSON(skip))
-	ok, _ := eval[bool](s, js)
-	return ok
+	return s.inFrames(js)
 }
 
 func (s *Session) joinLoop(ctx context.Context) error {
@@ -400,6 +378,7 @@ func (s *Session) joinLoop(ctx context.Context) error {
 	if err := chromedp.Do(s.b.Ctx, chromedp.Navigate(s.opts.Link.URL)); err != nil {
 		return i18n.Errorf(err, "err.webex.join", "pagina nu s-a încărcat")
 	}
+	newTabs := s.watchNewTabs(ctx)
 	var (
 		last          string
 		lobbySince    time.Time
@@ -413,6 +392,15 @@ func (s *Session) joinLoop(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-tick.C:
+		case u, ok := <-newTabs:
+			if !ok {
+				newTabs = nil
+				continue
+			}
+			if err := chromedp.Do(s.b.Ctx, chromedp.Navigate(u)); err != nil {
+				slog.Warn("navigate to new tab url", "err", err)
+			}
+			continue
 		}
 		if err := s.checkHost(); err != nil {
 			return err

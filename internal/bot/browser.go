@@ -132,6 +132,9 @@ func launch(parent context.Context, path string, headless, onScreen bool, extra 
 		chromedp.Flag("disable-extensions", true),
 		chromedp.Flag("no-service-autorun", true),
 		chromedp.Flag("password-store", "basic"),
+		// "Join from browser" may open the client in a new tab; a script click
+		// is no user gesture, so the popup blocker would swallow it.
+		chromedp.Flag("disable-popup-blocking", true),
 		chromedp.WindowSize(1280, 800),
 	}
 	if headless {

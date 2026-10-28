@@ -75,6 +75,7 @@ func Selftest(ctx context.Context, opts Options, dir string, d time.Duration) (*
 	if err := s.JoinMeeting(ctx); err != nil {
 		rep.JoinError = err.Error()
 		shot("join_error")
+		s.saveJoinDiagnostics(err)
 		return rep, writeReport(dir, rep)
 	}
 	shot("in_meeting")

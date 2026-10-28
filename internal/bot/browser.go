@@ -81,13 +81,14 @@ var transports = []struct {
 
 // Launch starts the browser. GPU is always off (constraint C7); the fake
 // microphone plays silence; audio output is muted (capture taps WebAudio
-// before the speakers).
-func Launch(parent context.Context, path string, headless bool) (*Browser, error) {
+// before the speakers). A non-headless window sits off-screen unless
+// onScreen (selftest --visible).
+func Launch(parent context.Context, path string, headless, onScreen bool) (*Browser, error) {
 	slog.Info("browser", "path", path, "elevated", Elevated())
 	var err error
 	for _, tr := range transports {
 		var b *Browser
-		if b, err = launch(parent, path, headless, tr.opts); err == nil {
+		if b, err = launch(parent, path, headless, onScreen, tr.opts); err == nil {
 			return b, nil
 		}
 		slog.Warn("browser start failed", "transport", tr.name, "err", err)
@@ -101,7 +102,7 @@ func Launch(parent context.Context, path string, headless bool) (*Browser, error
 	return nil, i18n.Errorf(err, "err.browser.blocked")
 }
 
-func launch(parent context.Context, path string, headless bool, extra []chromedp.ExecAllocatorOption) (*Browser, error) {
+func launch(parent context.Context, path string, headless, onScreen bool, extra []chromedp.ExecAllocatorOption) (*Browser, error) {
 	profile := filepath.Join(config.BrowserDir(), fmt.Sprintf("s-%d", time.Now().UnixNano()))
 	if err := os.MkdirAll(profile, 0o700); err != nil {
 		return nil, err
@@ -135,7 +136,7 @@ func launch(parent context.Context, path string, headless bool, extra []chromedp
 	}
 	if headless {
 		opts = append(opts, chromedp.Flag("headless", "new"))
-	} else {
+	} else if !onScreen {
 		opts = append(opts, chromedp.Flag("window-position", "-32000,-32000"))
 	}
 	opts = append(opts, extra...)

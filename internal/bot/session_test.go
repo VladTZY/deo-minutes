@@ -249,7 +249,7 @@ func TestLaunchFallsBackToPort(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b, err := Launch(ctx, path, true)
+	b, err := Launch(ctx, path, true, false)
 	if err != nil {
 		t.Fatalf("launch: %v", err)
 	}

@@ -67,6 +67,7 @@ type Options struct {
 	Email        string
 	BrowserPath  string
 	Headless     bool
+	ShowWindow   bool // non-headless window on screen (selftest --visible)
 	LobbyTimeout time.Duration
 	JoinTimeout  time.Duration // time allowed outside the lobby to get in
 	Selectors    Selectors
@@ -115,6 +116,11 @@ func Join(ctx context.Context, opts Options) (*Session, error) {
 		return nil, err
 	}
 	if err := s.JoinMeeting(ctx); err != nil {
+		if ctx.Err() == nil {
+			if dir := s.saveJoinDiagnostics(err); dir != "" {
+				slog.Info("join diagnostics saved", "dir", dir)
+			}
+		}
 		_ = s.b.Close()
 		return nil, err
 	}
@@ -137,7 +143,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := Launch(ctx, path, opts.Headless)
+	b, err := Launch(ctx, path, opts.Headless, opts.ShowWindow)
 	if err != nil {
 		return nil, err
 	}

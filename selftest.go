@@ -46,6 +46,7 @@ func runSelftest(args []string) int {
 		Email:        cfg.Bot.Email,
 		BrowserPath:  cfg.Bot.BrowserPath,
 		Headless:     !*visible,
+		ShowWindow:   *visible,
 		LobbyTimeout: time.Duration(cfg.Bot.LobbyTimeoutMin) * time.Minute,
 		Selectors:    bot.DefaultSelectors,
 	}, dir, time.Duration(*minutes)*time.Minute)

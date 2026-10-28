@@ -239,6 +239,7 @@
   "err.busy": "O ședință este deja în curs. Oprește-o înainte de a porni alta.",
   "err.browser.notFound": "Nu am găsit Microsoft Edge. Setează calea browserului în Setări.",
   "err.browser.blocked": "Browserul nu poate fi controlat (posibil blocat de politica IT).",
+  "err.browser.elevated": "Aplicația rulează ca administrator, iar Edge refuză să fie controlat așa. Închide aplicația și pornește DEOMinute.exe normal, cu dublu-click (fără „Rulează ca administrator”).",
   "err.webex.join": "Nu am reușit să intru în ședință: {0}",
   "err.webex.passwordRequired": "Ședința cere parolă. Completează câmpul „Parolă ședință”.",
   "err.webex.wrongPassword": "Parola ședinței este greșită.",

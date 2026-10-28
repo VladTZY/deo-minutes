@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	"deo-minutes/internal/app"
+	"deo-minutes/internal/bot"
 	"deo-minutes/internal/config"
 	"deo-minutes/internal/i18n"
 	"deo-minutes/internal/logx"
@@ -29,7 +30,7 @@ func main() {
 	if closer, err := logx.Setup(config.LogsDir()); err == nil {
 		defer func() { _ = closer.Close() }()
 	}
-	slog.Info("start", "version", version)
+	slog.Info("start", "version", version, "elevated", bot.Elevated())
 
 	if len(os.Args) > 1 && os.Args[1] == "--selftest" {
 		os.Exit(runSelftest(os.Args[2:]))

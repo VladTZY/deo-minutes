@@ -87,10 +87,13 @@ func Launch(parent context.Context, path string, headless bool) (*Browser, error
 		if b, err = launch(parent, path, headless, tr.opts); err == nil {
 			return b, nil
 		}
-		slog.Warn("browser start failed", "transport", tr.name, "err", err)
+		slog.Warn("browser start failed", "transport", tr.name, "path", path, "elevated", Elevated(), "err", err)
 		if parent.Err() != nil {
 			break
 		}
+	}
+	if Elevated() {
+		return nil, i18n.Errorf(err, "err.browser.elevated")
 	}
 	return nil, i18n.Errorf(err, "err.browser.blocked")
 }

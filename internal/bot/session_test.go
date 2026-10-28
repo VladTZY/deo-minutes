@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	cdpruntime "github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/chromedp"
 
 	"deo-minutes/internal/audio"
 	"deo-minutes/internal/i18n"
@@ -227,5 +229,32 @@ func TestBindingLimits(t *testing.T) {
 	r := <-s.roster
 	if len(r.Participants) != maxParticipants || len([]rune(r.Participants[0])) != maxNameLen || len(r.Speakers) != 10 {
 		t.Fatalf("roster not capped: %d names, %d chars", len(r.Participants), len(r.Participants[0]))
+	}
+}
+
+// TestLaunchFallsBackToPort: when the pipe start fails (as with some Edge
+// builds on Windows), Launch retries over the debugging port.
+func TestLaunchFallsBackToPort(t *testing.T) {
+	if testing.Short() {
+		t.Skip("needs a browser")
+	}
+	path, err := FindBrowser("")
+	if err != nil {
+		t.Skip("no Edge/Chrome installed")
+	}
+	saved := transports
+	defer func() { transports = saved }()
+	transports = append(transports[:0:0], saved...)
+	transports[0].opts = []chromedp.ExecAllocatorOption{chromedp.ExecPath(filepath.Join(t.TempDir(), "missing"))}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	b, err := Launch(ctx, path, true)
+	if err != nil {
+		t.Fatalf("launch: %v", err)
+	}
+	defer func() { _ = b.Close() }()
+	if got, err := chromedp.Run(b.Ctx, chromedp.Evaluate[int]("1+1")); err != nil || got != 2 {
+		t.Fatalf("evaluate over port: %v %v", got, err)
 	}
 }

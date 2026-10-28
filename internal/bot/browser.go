@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/chromedp/chromedp/remote"
 
 	"deo-minutes/internal/audio"
 	"deo-minutes/internal/config"
@@ -63,10 +65,37 @@ type Browser struct {
 	profile string
 }
 
+// transports are tried in order. The pipe is chromedp's default; some Edge
+// builds on Windows reject its handle switch (--remote-debugging-io-pipes) and
+// quit without output, so the classic debugging port (127.0.0.1, random port)
+// is the fallback. (var so tests can force one)
+var transports = []struct {
+	name string
+	opts []chromedp.ExecAllocatorOption
+}{
+	{"pipe", nil},
+	{"port", []chromedp.ExecAllocatorOption{remote.WebSocket}},
+}
+
 // Launch starts the browser. GPU is always off (constraint C7); the fake
 // microphone plays silence; audio output is muted (capture taps WebAudio
 // before the speakers).
 func Launch(parent context.Context, path string, headless bool) (*Browser, error) {
+	var err error
+	for _, tr := range transports {
+		var b *Browser
+		if b, err = launch(parent, path, headless, tr.opts); err == nil {
+			return b, nil
+		}
+		slog.Warn("browser start failed", "transport", tr.name, "err", err)
+		if parent.Err() != nil {
+			break
+		}
+	}
+	return nil, i18n.Errorf(err, "err.browser.blocked")
+}
+
+func launch(parent context.Context, path string, headless bool, extra []chromedp.ExecAllocatorOption) (*Browser, error) {
 	profile := filepath.Join(config.BrowserDir(), fmt.Sprintf("s-%d", time.Now().UnixNano()))
 	if err := os.MkdirAll(profile, 0o700); err != nil {
 		return nil, err
@@ -103,13 +132,14 @@ func Launch(parent context.Context, path string, headless bool) (*Browser, error
 	} else {
 		opts = append(opts, chromedp.Flag("window-position", "-32000,-32000"))
 	}
+	opts = append(opts, extra...)
 	actx, acancel := chromedp.NewExecAllocator(parent, opts...)
 	ctx, cancel := chromedp.NewContext(actx)
 	if err := chromedp.Do(ctx); err != nil { // starts the process
 		cancel()
 		acancel()
 		_ = os.RemoveAll(profile)
-		return nil, i18n.Errorf(err, "err.browser.blocked")
+		return nil, err
 	}
 	return &Browser{Ctx: ctx, cancel: func() { cancel(); acancel() }, profile: profile}, nil
 }

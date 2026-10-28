@@ -1,5 +1,5 @@
 // Package bot joins a Webex meeting as a guest through the Webex web client in
-// a hidden Edge/Chrome, and streams the meeting audio and the participant /
+// a hidden Chrome (or Edge), and streams the meeting audio and the participant /
 // active-speaker roster back to Go.
 package bot
 

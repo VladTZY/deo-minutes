@@ -18,7 +18,7 @@ DEMO este potrivit pentru teste: poți relua orice pas și poți importa o înre
 
 ## Cerințe
 
-- Windows 10 sau 11, cu Microsoft Edge (vine cu Windows).
+- Windows 10 sau 11, cu Google Chrome. Dacă nu e instalat, îl poți instala de pe google.com/chrome fără drepturi de administrator. Fără Chrome, botul folosește Microsoft Edge.
 - Conexiune la internet.
 - Pentru DEMO: o cheie OpenRouter. Transcriptorul local vine în arhivă (folderul `whisper`) și are nevoie de Microsoft Visual C++ Redistributable 2015-2022 (x64), prezent pe majoritatea calculatoarelor. Dacă modelul de transcriere nu este în arhivă, aplicația îl descarcă o singură dată (574 MB) la apăsarea butonului **Descarcă modelul** din „Verificări înainte de ședință”.
 - Pentru PROD: chei AWS pentru Amazon Transcribe (regiunea `eu-central-1`, Frankfurt) și acces la modelul AI prin gateway-ul companiei sau direct prin AWS Bedrock.
@@ -75,7 +75,8 @@ Fișierele de lucru (transcrierea brută, eventual audio) stau în `%LOCALAPPDAT
 
 | Mesaj | Ce faci |
 |-------|---------|
-| Nu am găsit Microsoft Edge | Setează calea browserului în Setări → Bot. |
+| Nu am găsit Google Chrome sau Microsoft Edge | Instalează Google Chrome sau setează calea browserului în Setări → Bot. |
+| Aplicația rulează ca administrator | Închide aplicația și pornește `DEOMinute.exe` cu dublu-click, fără „Rulează ca administrator”. |
 | Organizatorul nu a acceptat botul | Organizatorul trebuie să-l accepte din sala de așteptare Webex. |
 | Ședința cere parolă | Completează câmpul „Parolă ședință”. |
 | Cheile AWS pentru transcriere nu sunt configurate | Setări → Chei AWS. |

@@ -18,27 +18,29 @@ import (
 	"deo-minutes/internal/i18n"
 )
 
-// browserCandidates lists where Edge/Chrome live without admin installs.
+// browserCandidates lists where the bot looks for a browser, Chrome first
+// (installed for everyone, for the user only, or portable Chrome for Testing
+// in the app folder), Edge only as the last resort. None needs admin rights.
 func browserCandidates() []string {
 	switch runtime.GOOS {
 	case "windows":
 		pf86, pf, local := os.Getenv("ProgramFiles(x86)"), os.Getenv("ProgramFiles"), os.Getenv("LOCALAPPDATA")
 		return []string{
-			filepath.Join(pf86, `Microsoft\Edge\Application\msedge.exe`),
-			filepath.Join(pf, `Microsoft\Edge\Application\msedge.exe`),
-			filepath.Join(local, `Microsoft\Edge\Application\msedge.exe`),
-			filepath.Join(config.AppDataDir(), `chrome\chrome.exe`), // Chrome for Testing fallback
 			filepath.Join(pf, `Google\Chrome\Application\chrome.exe`),
 			filepath.Join(pf86, `Google\Chrome\Application\chrome.exe`),
 			filepath.Join(local, `Google\Chrome\Application\chrome.exe`),
+			filepath.Join(config.AppDataDir(), `chrome\chrome.exe`), // Chrome for Testing
+			filepath.Join(pf86, `Microsoft\Edge\Application\msedge.exe`),
+			filepath.Join(pf, `Microsoft\Edge\Application\msedge.exe`),
+			filepath.Join(local, `Microsoft\Edge\Application\msedge.exe`),
 		}
 	case "darwin":
 		return []string{
-			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 		}
 	default:
-		return []string{"/usr/bin/microsoft-edge", "/usr/bin/google-chrome", "/usr/bin/chromium"}
+		return []string{"/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/microsoft-edge"}
 	}
 }
 
@@ -65,8 +67,8 @@ type Browser struct {
 	profile string
 }
 
-// transports are tried in order. The pipe is chromedp's default; some Edge
-// builds on Windows reject its handle switch (--remote-debugging-io-pipes) and
+// transports are tried in order. The pipe is chromedp's default; some
+// browser builds on Windows reject its handle switch (--remote-debugging-io-pipes) and
 // quit without output, so the classic debugging port (127.0.0.1, random port)
 // is the fallback. (var so tests can force one)
 var transports = []struct {
@@ -81,13 +83,14 @@ var transports = []struct {
 // microphone plays silence; audio output is muted (capture taps WebAudio
 // before the speakers).
 func Launch(parent context.Context, path string, headless bool) (*Browser, error) {
+	slog.Info("browser", "path", path, "elevated", Elevated())
 	var err error
 	for _, tr := range transports {
 		var b *Browser
 		if b, err = launch(parent, path, headless, tr.opts); err == nil {
 			return b, nil
 		}
-		slog.Warn("browser start failed", "transport", tr.name, "path", path, "elevated", Elevated(), "err", err)
+		slog.Warn("browser start failed", "transport", tr.name, "err", err)
 		if parent.Err() != nil {
 			break
 		}

@@ -140,6 +140,7 @@ func (a *App) Start(req StartRequest) error {
 			Email:        cfg.Bot.Email,
 			BrowserPath:  cfg.Bot.BrowserPath,
 			Headless:     cfg.Bot.Headless,
+			ShowWindow:   !cfg.Bot.Headless, // unticking "Browser ascuns" shows the bot window
 			LobbyTimeout: time.Duration(cfg.Bot.LobbyTimeoutMin) * time.Minute,
 			Selectors:    bot.DefaultSelectors,
 		}, openSTT)

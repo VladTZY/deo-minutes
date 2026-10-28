@@ -27,7 +27,7 @@ Cheile le primești de la persoana care administrează contul AWS al companiei.
 
 ## Prima pornire
 
-1. Dezarhivează `DEOMinute-<versiune>-windows-amd64.zip` într-un folder al tău, de exemplu `Documente\DEO Minute app`.
+1. Descarcă ultima versiune din [Releases](https://github.com/VladTZY/deo-minutes/releases/latest) (`DEOMinute-<versiune>-windows-amd64-lite.zip`) și dezarhiveaz-o într-un folder al tău, de exemplu `Documente\DEO Minute app`. Varianta `-lite` nu conține modelul de transcriere: aplicația îl descarcă la prima folosire (vezi Cerințe).
 2. Pornește `DEOMinute.exe`. Dacă Windows afișează „Windows a protejat computerul”, apasă **Mai multe informații**, apoi **Rulează oricum**. Aplicația nu este semnată digital, de aceea apare mesajul.
 3. Pagina **Ședință** arată în dreapta „Verificări înainte de ședință”: ce lipsește are un link direct spre setarea potrivită.
 4. În **Setări**, pentru DEMO: cheia OpenRouter, apoi butonul de test. Pentru PROD: cheile AWS (Access Key ID și Secret Access Key), gateway-ul AI dacă există (gol înseamnă direct AWS Bedrock), apoi testele. Cheile se salvează în Windows Credential Manager, nu într-un fișier.

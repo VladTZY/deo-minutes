@@ -52,6 +52,8 @@ Botul iese singur când ședința se termină, când este scos din ședință, d
 2. Verifici textul transcrierii afișat pe ecran.
 3. **Generează minuta**: completează Excel-ul prin OpenRouter, apoi apare **Deschide Excel**.
 
+Te poți întoarce oricând la un pas terminat: apasă pe pas în bara de sus sau pe **Vezi transcrierea**. De acolo poți citi transcrierea, poți genera minuta din nou (se salvează un fișier nou, `_v2`) sau poți transcrie din nou înregistrarea. **Înapoi la pasul curent** te readuce la rezultat.
+
 Pentru un test fără ședință, folosește **Importă o înregistrare WAV** (16 kHz, mono, 16 biți) și continuă de la pasul 2.
 
 ## Unde se salvează fișierele
@@ -65,7 +67,22 @@ Un fișier existent nu se suprascrie: a doua variantă primește sufixul `_v2`.
 
 Fiecare rând din registru are în coloana Notes (sau într-un comentariu pe celula `#`, la Riscuri și Decizii) citatul din transcriere pe care se bazează, cu ora și vorbitorul. Rândurile pentru care citatul nu se găsește în transcriere sunt eliminate automat.
 
-Fișierele de lucru (transcrierea brută, eventual audio) stau în `%LOCALAPPDATA%\DEOMinutes\sessions` și se șterg după 30 de zile (configurabil în Setări).
+Restul datelor stau lângă `DEOMinute.exe`, în folderul aplicației:
+
+```
+DEO Minute app\
+  DEOMinute.exe
+  whisper\          transcriptorul local
+  models\           modelul de transcriere
+  data\
+    config.json     setările (fără chei: cheile sunt în Windows Credential Manager)
+    sessions\       fișierele de lucru ale fiecărei ședințe (audio, transcrierea brută)
+    logs\           jurnalul aplicației
+```
+
+Fișierele din `data\sessions` se șterg după 30 de zile (configurabil în Setări). Ca să muți aplicația pe alt calculator, copiezi tot folderul; cheile le introduci din nou în Setări.
+
+Dacă folderul aplicației nu permite scrierea (de exemplu e într-o locație protejată), aplicația folosește `%LOCALAPPDATA%\DEOMinutes`, ca versiunile mai vechi. La prima pornire a versiunii noi, datele din `%LOCALAPPDATA%\DEOMinutes` se mută automat în `data`.
 
 ## Dacă un pas eșuează
 
@@ -84,7 +101,7 @@ Fișierele de lucru (transcrierea brută, eventual audio) stau în `%LOCALAPPDAT
 | Contul OpenRouter nu mai are credit | Adaugă credit în contul OpenRouter. |
 | Transcriptorul local are nevoie de Microsoft Visual C++ | Cere echipei IT „Visual C++ Redistributable 2015-2022 x64” sau o arhivă care îl include. |
 
-Jurnalul aplicației, util pentru suport, este în `%LOCALAPPDATA%\DEOMinutes\logs`. Nu conține chei, parole sau textul transcrierii.
+Jurnalul aplicației, util pentru suport, este în `data\logs`, lângă `DEOMinute.exe`. Nu conține chei, parole sau textul transcrierii.
 
 ## Test pe o ședință reală (pentru suport)
 
@@ -95,7 +112,7 @@ set DEO_MEETING_PASSWORD=parola_sedintei
 DEOMinute.exe --selftest --minutes 3 "https://firma.webex.com/meet/nume"
 ```
 
-Adaugă `--visible` ca să vezi fereastra browserului. Rezultatele (capturi de ecran, `audio.wav`, `raport.txt`) apar în `%LOCALAPPDATA%\DEOMinutes\selftest`, iar folderul se deschide la final. Nu se trimite nimic în afara calculatorului.
+Adaugă `--visible` ca să vezi fereastra browserului. Rezultatele (capturi de ecran, `audio.wav`, `raport.txt`) apar în `data\selftest`, lângă `DEOMinute.exe`, iar folderul se deschide la final. Nu se trimite nimic în afara calculatorului.
 
 ## Pentru dezvoltatori
 

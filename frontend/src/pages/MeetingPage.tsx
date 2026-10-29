@@ -120,6 +120,18 @@ export default function MeetingPage(props: Props) {
     const setup = status.state === 'idle' || (!active && dismissed !== null && dismissed === status.sessionId);
     const flow = flowOf(status, setup, mode, failedAt);
 
+    // A finished earlier step the user went back to, to read the transcript
+    // or redo a step. Any change of state shows the live step again.
+    const [view, setView] = useState<StepIndex | null>(null);
+    useEffect(() => setView(null), [status.state, status.sessionId]);
+    const sessionMode = status.mode || mode;
+    const canView: [boolean, boolean, boolean] = [
+        !setup && !active && (status.steps?.recorded ?? false) && sessionMode === 'demo',
+        !setup && !active && (status.steps?.transcribed ?? false),
+        false,
+    ];
+    const viewing = view !== null && canView[view] ? view : null;
+
     async function act(kind: Exclude<Pending, null>, fn: () => Promise<void>) {
         if (pending) {
             return;
@@ -179,8 +191,36 @@ export default function MeetingPage(props: Props) {
     const checks = checksFor(ready, mode);
     const blocked = checks !== null && checks.some(c => !c.ok);
 
+    const onResume = () => setView(null);
     let body: ReactNode;
-    if (setup) {
+    if (viewing === 0) {
+        body = (
+            <RecordedView
+                localOk={localReady(ready.local)}
+                pending={pending}
+                again
+                onTranscribe={onTranscribe}
+                onResume={onResume}
+                onNew={onNew}
+                onOpenSettings={onOpenSettings}
+            />
+        );
+    } else if (viewing === 1) {
+        body = (
+            <TranscribedView
+                sessionId={status.sessionId}
+                mode={sessionMode === 'prod' ? 'prod' : 'demo'}
+                aiOk={aiReady(ready, sessionMode === 'prod' ? 'prod' : 'demo')}
+                pending={pending}
+                again={status.steps?.generated ?? false}
+                onGenerate={onGenerate}
+                onBack={canView[0] ? () => setView(0) : undefined}
+                onResume={onResume}
+                onNew={onNew}
+                onOpenSettings={onOpenSettings}
+            />
+        );
+    } else if (setup) {
         body = (
             <SetupView
                 mode={mode}
@@ -225,6 +265,7 @@ export default function MeetingPage(props: Props) {
                 aiOk={aiReady(ready, mode)}
                 pending={pending}
                 onGenerate={onGenerate}
+                onBack={canView[0] ? () => setView(0) : undefined}
                 onNew={onNew}
                 onOpenSettings={onOpenSettings}
             />
@@ -232,7 +273,7 @@ export default function MeetingPage(props: Props) {
     } else if (status.state === 'generating' || status.state === 'saving') {
         body = <GeneratingView status={status}/>;
     } else if (status.state === 'done') {
-        body = <DoneView result={status.result} onNew={onNew}/>;
+        body = <DoneView result={status.result} onTranscript={canView[1] ? () => setView(1) : undefined} onNew={onNew}/>;
     } else {
         body = (
             <ErrorView
@@ -243,6 +284,7 @@ export default function MeetingPage(props: Props) {
                 pending={pending}
                 onTranscribe={onTranscribe}
                 onGenerate={onGenerate}
+                onTranscript={canView[1] ? () => setView(1) : undefined}
                 onNew={onNew}
                 onShowHistory={onShowHistory}
             />
@@ -253,7 +295,13 @@ export default function MeetingPage(props: Props) {
 
     return (
         <div className="page meeting">
-            <Stepper flow={flow} prod={(setup ? mode : status.mode || mode) === 'prod'}/>
+            <Stepper
+                flow={flow}
+                prod={(setup ? mode : status.mode || mode) === 'prod'}
+                canView={canView}
+                viewing={viewing}
+                onView={i => setView(i)}
+            />
             {body}
             {actionError && <p className="msg msg-err action-error" role="alert">{actionError}</p>}
             {warnings.length > 0 && (
@@ -270,7 +318,13 @@ export default function MeetingPage(props: Props) {
 
 // ---------- Stepper ----------
 
-function Stepper({flow, prod}: { flow: Flow; prod: boolean }) {
+function Stepper({flow, prod, canView, viewing, onView}: {
+    flow: Flow;
+    prod: boolean;
+    canView: [boolean, boolean, boolean];
+    viewing: StepIndex | null;
+    onView: (i: StepIndex) => void;
+}) {
     const titles = [t("step.record"), t("step.transcribe"), t("step.generate")];
     const word = (s: string) => {
         switch (s) {
@@ -288,18 +342,31 @@ function Stepper({flow, prod}: { flow: Flow; prod: boolean }) {
                 return prod ? t("step.state.auto") : t("step.state.waiting");
         }
     };
-    const here = flow.findIndex(s => s === 'current' || s === 'next' || s === 'error');
+    const here = viewing ?? flow.findIndex(s => s === 'current' || s === 'next' || s === 'error');
     return (
         <ol className="stepper" aria-label={t("step.label")}>
-            {flow.map((s, i) => (
-                <li key={i} className={`step step-${s}`} aria-current={i === here ? 'step' : undefined}>
-                    <span className="step-mark" aria-hidden="true">{s === 'done' ? '✓' : s === 'error' ? '!' : i + 1}</span>
-                    <span className="step-text">
-                        <span className="step-title">{titles[i]}</span>
-                        <span className="step-state">{word(s)}</span>
-                    </span>
-                </li>
-            ))}
+            {flow.map((s, i) => {
+                const inner = (
+                    <>
+                        <span className="step-mark" aria-hidden="true">{s === 'done' ? '✓' : s === 'error' ? '!' : i + 1}</span>
+                        <span className="step-text">
+                            <span className="step-title">{titles[i]}</span>
+                            <span className="step-state">{i === viewing ? t("step.state.viewing") : word(s)}</span>
+                        </span>
+                    </>
+                );
+                const cls = `step step-${s}${i === viewing ? ' step-viewing' : ''}`;
+                return (
+                    <li key={i} className={cls} aria-current={i === here ? 'step' : undefined}>
+                        {canView[i] && i !== viewing ? (
+                            <button type="button" className="step-btn" title={t("step.view")}
+                                    onClick={() => onView(i as StepIndex)}>
+                                {inner}
+                            </button>
+                        ) : inner}
+                    </li>
+                );
+            })}
         </ol>
     );
 }
@@ -524,25 +591,30 @@ function Elapsed({startedAt, ticking}: { startedAt: number; ticking: boolean }) 
 
 // ---------- Step 2 (DEMO) ----------
 
-function RecordedView({localOk, pending, onTranscribe, onNew, onOpenSettings}: {
+function RecordedView({localOk, pending, again, onTranscribe, onResume, onNew, onOpenSettings}: {
     localOk: boolean;
     pending: Pending;
+    again?: boolean;
     onTranscribe: () => void;
+    onResume?: () => void;
     onNew: () => void;
     onOpenSettings: (s: SettingsSection, field?: string) => void;
 }) {
     return (
         <section className="panel stage" aria-labelledby="stage-title">
             <h1 id="stage-title" className="stage-title">{t("recorded.title")}</h1>
-            <p className="stage-note">{t("recorded.desc")}</p>
+            <p className="stage-note">{again ? t("recorded.desc.again") : t("recorded.desc")}</p>
             {!localOk && (
                 <Missing text={t("ready.local.missing")} onFix={() => onOpenSettings('demo')}/>
             )}
             <div className="primary-row">
                 <button type="button" className="btn btn-primary btn-lg" disabled={pending !== null || !localOk}
                         onClick={onTranscribe}>
-                    {pending === 'transcribe' ? t("main.starting") : t("recorded.action")}
+                    {pending === 'transcribe' ? t("main.starting") : again ? t("recorded.action.again") : t("recorded.action")}
                 </button>
+                {onResume && (
+                    <button type="button" className="btn btn-secondary" onClick={onResume}>{t("step.resume")}</button>
+                )}
                 <button type="button" className="btn btn-ghost" onClick={onNew}>{t("main.new")}</button>
             </div>
         </section>
@@ -582,12 +654,15 @@ function TranscribingView({status, pending, onStop}: { status: app.Status; pendi
 
 // ---------- Step 3 ----------
 
-function TranscribedView({sessionId, mode, aiOk, pending, onGenerate, onNew, onOpenSettings}: {
+function TranscribedView({sessionId, mode, aiOk, pending, again, onGenerate, onBack, onResume, onNew, onOpenSettings}: {
     sessionId: string;
     mode: Mode;
     aiOk: boolean;
     pending: Pending;
+    again?: boolean;
     onGenerate: () => void;
+    onBack?: () => void;
+    onResume?: () => void;
     onNew: () => void;
     onOpenSettings: (s: SettingsSection, field?: string) => void;
 }) {
@@ -620,14 +695,21 @@ function TranscribedView({sessionId, mode, aiOk, pending, onGenerate, onNew, onO
                 <div>
                     <h1 id="stage-title" className="stage-title">{t("transcribed.title")}</h1>
                     <p className="stage-note">
-                        {mode === 'demo' ? t("transcribed.desc.demo") : t("transcribed.desc.prod")}
+                        {again ? t("transcribed.desc.again")
+                            : mode === 'demo' ? t("transcribed.desc.demo") : t("transcribed.desc.prod")}
                     </p>
                 </div>
                 <div className="primary-row primary-row-end">
+                    {onBack && (
+                        <button type="button" className="btn btn-ghost" onClick={onBack}>{t("step.back.record")}</button>
+                    )}
                     <button type="button" className="btn btn-ghost" onClick={onNew}>{t("main.new")}</button>
+                    {onResume && (
+                        <button type="button" className="btn btn-secondary" onClick={onResume}>{t("step.resume")}</button>
+                    )}
                     <button type="button" className="btn btn-primary btn-lg" disabled={pending !== null || !aiOk}
                             onClick={onGenerate}>
-                        {pending === 'generate' ? t("main.starting") : t("transcribed.action")}
+                        {pending === 'generate' ? t("main.starting") : again ? t("transcribed.action.again") : t("transcribed.action")}
                     </button>
                 </div>
             </div>
@@ -673,7 +755,7 @@ function GeneratingView({status}: { status: app.Status }) {
     );
 }
 
-function DoneView({result, onNew}: { result?: app.Result; onNew: () => void }) {
+function DoneView({result, onTranscript, onNew}: { result?: app.Result; onTranscript?: () => void; onNew: () => void }) {
     const [err, setErr] = useState('');
     const c = result?.counts;
     const counts = [
@@ -699,6 +781,11 @@ function DoneView({result, onNew}: { result?: app.Result; onNew: () => void }) {
                 <h1 id="stage-title" className="stage-title">{t("main.done.title")}</h1>
                 <div className="primary-row primary-row-end">
                     <button type="button" className="btn btn-ghost" onClick={onNew}>{t("main.new")}</button>
+                    {onTranscript && (
+                        <button type="button" className="btn btn-secondary" onClick={onTranscript}>
+                            {t("step.back.transcript")}
+                        </button>
+                    )}
                     {result?.folder && (
                         <button type="button" className="btn btn-secondary" onClick={() => open(result.folder)}>
                             {t("main.openFolder")}
@@ -724,7 +811,7 @@ function DoneView({result, onNew}: { result?: app.Result; onNew: () => void }) {
     );
 }
 
-function ErrorView({status, flow, mode, localOk, pending, onTranscribe, onGenerate, onNew, onShowHistory}: {
+function ErrorView({status, flow, mode, localOk, pending, onTranscribe, onGenerate, onTranscript, onNew, onShowHistory}: {
     status: app.Status;
     flow: Flow;
     mode: Mode;
@@ -732,6 +819,7 @@ function ErrorView({status, flow, mode, localOk, pending, onTranscribe, onGenera
     pending: Pending;
     onTranscribe: () => void;
     onGenerate: () => void;
+    onTranscript?: () => void;
     onNew: () => void;
     onShowHistory: () => void;
 }) {
@@ -757,6 +845,11 @@ function ErrorView({status, flow, mode, localOk, pending, onTranscribe, onGenera
                 {canTranscribe && (
                     <button type="button" className="btn btn-primary btn-lg" disabled={pending !== null} onClick={onTranscribe}>
                         {t("error.retryTranscribe")}
+                    </button>
+                )}
+                {onTranscript && (
+                    <button type="button" className="btn btn-secondary" onClick={onTranscript}>
+                        {t("step.back.transcript")}
                     </button>
                 )}
                 <button type="button" className={canGenerate || canTranscribe ? 'btn btn-secondary' : 'btn btn-primary btn-lg'}

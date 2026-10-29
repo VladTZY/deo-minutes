@@ -31,6 +31,9 @@ type App struct {
 	emit func(event string, data any)
 	// llmFactory builds the model client; nil means a.newLLM (tests inject a fake).
 	llmFactory func(ctx context.Context) (llm.Client, error)
+	// launch opens a file or folder with its default program; nil means
+	// Explorer / open / xdg-open (tests record the call instead).
+	launch func(path string) error
 }
 
 func New(version string) *App {

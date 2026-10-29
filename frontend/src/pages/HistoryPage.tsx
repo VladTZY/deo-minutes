@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import {DeleteHistory, Generate, History, OpenPath, Outputs, Transcribe} from '../../wailsjs/go/app/App';
+import {DeleteHistory, Generate, History, OpenPath, OpenSession, Outputs, Transcribe} from '../../wailsjs/go/app/App';
 import {app} from '../../wailsjs/go/models';
 import {t} from '../lib/i18n';
 import {errorText} from '../lib/errors';
@@ -8,9 +8,11 @@ interface Props {
     refreshKey: number;
     busy: boolean;
     onStepStarted: () => void;
+    // A row was opened on the main page.
+    onSessionOpened: () => void;
 }
 
-export default function HistoryPage({refreshKey, busy, onStepStarted}: Props) {
+export default function HistoryPage({refreshKey, busy, onStepStarted, onSessionOpened}: Props) {
     const [items, setItems] = useState<app.HistoryItem[] | null>(null);
     const [error, setError] = useState('');
     const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -47,6 +49,10 @@ export default function HistoryPage({refreshKey, busy, onStepStarted}: Props) {
     const onGenerate = (it: app.HistoryItem) => act(it.id, async () => {
         await Generate(it.id, await Outputs()); // the last choice made in step 3
         onStepStarted();
+    });
+    const onOpenSession = (it: app.HistoryItem) => act(it.id, async () => {
+        await OpenSession(it.id);
+        onSessionOpened();
     });
     const onDelete = (it: app.HistoryItem) => act(it.id, async () => {
         await DeleteHistory(it.id);
@@ -90,13 +96,23 @@ export default function HistoryPage({refreshKey, busy, onStepStarted}: Props) {
                         {items.map(it => {
                             const rowBusy = pending === it.id;
                             const c = it.counts;
+                            const name = t("history.projectNo", it.project, it.meetingNo);
+                            // The whole row opens the session; the name is the keyboard target.
                             return (
-                                <tr key={it.id}>
+                                <tr key={it.id} className={busy ? undefined : 'row-link'}
+                                    onClick={e => {
+                                        if (!busy && !rowBusy && !(e.target as HTMLElement).closest('button')) {
+                                            onOpenSession(it);
+                                        }
+                                    }}>
                                     <td className="nowrap tabular">{it.date}</td>
                                     <td className="project-cell">
-                                        <span className="project-name" title={it.project}>
-                                            {t("history.projectNo", it.project, it.meetingNo)}
-                                        </span>
+                                        <button type="button" className="project-name row-open" disabled={busy || rowBusy}
+                                                title={busy ? t("history.openRow.busy") : it.project}
+                                                aria-label={t("history.openRow", name)}
+                                                onClick={() => onOpenSession(it)}>
+                                            {name}
+                                        </button>
                                         {it.imported && (
                                             <span className="row-sub" title={it.imported}>{t("history.imported", it.imported)}</span>
                                         )}

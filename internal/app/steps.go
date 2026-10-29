@@ -9,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"deo-minutes/internal/audio"
 	"deo-minutes/internal/config"
+	"deo-minutes/internal/export"
 	"deo-minutes/internal/i18n"
 	"deo-minutes/internal/speakers"
 	"deo-minutes/internal/stt"
@@ -203,6 +205,71 @@ func (a *App) Transcript(id string) ([]string, error) {
 		out[i] = l.String()
 	}
 	return out, nil
+}
+
+// OpenSession shows a past session on the main page at its last finished
+// step, so the user can open its files, read the transcript, or run a step
+// again. Refused while another session is running.
+func (a *App) OpenSession(id string) error {
+	if !sessionIDRe.MatchString(id) {
+		return i18n.Errorf(nil, "err.unexpected")
+	}
+	dir := filepath.Join(config.SessionsDir(), id)
+	var meta sessionMeta
+	if err := readJSON(filepath.Join(dir, metaFile), &meta); err != nil {
+		return i18n.Errorf(err, "err.unexpected")
+	}
+	a.mu.Lock()
+	busy := a.session != nil
+	a.mu.Unlock()
+	if busy {
+		return i18n.Errorf(nil, "err.busy")
+	}
+	steps := a.steps(dir, meta)
+	res := pastResult(meta)
+	st := Status{SessionID: meta.ID, Mode: meta.Mode, Steps: steps}
+	switch {
+	case res != nil:
+		st.State, st.Result = StateDone, res
+	case steps.Transcribed:
+		st.State = StateTranscribed
+	case steps.Recorded:
+		st.State = StateRecorded
+	default:
+		return i18n.Errorf(nil, "err.session.empty")
+	}
+	a.setStatus(func(s *Status) { *s = st })
+	return nil
+}
+
+// pastResult rebuilds a session's step 3 result from the files still in
+// the output folder; nil when none is left.
+func pastResult(meta sessionMeta) *Result {
+	exists := func(p string) bool {
+		_, err := os.Stat(p)
+		return p != "" && err == nil
+	}
+	var res Result
+	if exists(meta.ExcelPath) {
+		res.ExcelPath, res.Counts = meta.ExcelPath, meta.Counts
+	}
+	if exists(meta.SummaryPath) {
+		res.SummaryPath = meta.SummaryPath
+	}
+	var base string
+	switch {
+	case res.ExcelPath != "":
+		base = strings.TrimSuffix(res.ExcelPath, export.ExcelSuffix)
+	case res.SummaryPath != "":
+		base = strings.TrimSuffix(res.SummaryPath, export.SummarySuffix)
+	default:
+		return nil
+	}
+	res.Folder = filepath.Dir(base)
+	if p := base + export.TranscriptSuffix; exists(p) {
+		res.TranscriptPath = p
+	}
+	return &res
 }
 
 // ImportAudio creates a session from a WAV file (16 kHz, mono, 16-bit), so

@@ -486,3 +486,68 @@ func TestGenerateKeepsMinutesWhenSummaryFails(t *testing.T) {
 		t.Fatalf("summary-only failure must be an error: %+v", st)
 	}
 }
+
+func TestOpenPathOpensTheSummary(t *testing.T) {
+	a, _ := newTestApp(t)
+	var opened []string
+	a.launch = func(p string) error { opened = append(opened, p); return nil }
+	_ = os.MkdirAll(a.cfg.Output.Dir, 0o700)
+	for _, name := range []string{"m.xlsx", "m_rezumat.docx", "m_transcriere.txt"} {
+		p := filepath.Join(a.cfg.Output.Dir, name)
+		_ = os.WriteFile(p, []byte("x"), 0o600)
+		if err := a.OpenPath(p); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if len(opened) != 3 {
+		t.Errorf("opened %q", opened)
+	}
+}
+
+func TestOpenSessionShowsItsLastStep(t *testing.T) {
+	a, statuses := newTestApp(t)
+	id := "20261027-100000"
+	writeSession(t, id)
+
+	if err := a.OpenSession(id); err != nil {
+		t.Fatal(err)
+	}
+	if st := a.Status(); st.State != StateTranscribed || st.SessionID != id || !st.Steps.Transcribed {
+		t.Fatalf("transcribed session: %+v", st)
+	}
+
+	a.llmFactory = fakeBoth(false)
+	if err := a.Generate(id, Outputs{Minutes: true, Summary: true}); err != nil {
+		t.Fatal(err)
+	}
+	done := waitState(t, statuses, StateDone, StateError)
+	a.setStatus(func(st *Status) { *st = Status{State: StateIdle} })
+
+	if err := a.OpenSession(id); err != nil {
+		t.Fatal(err)
+	}
+	st := a.Status()
+	if st.State != StateDone || st.Result == nil || st.Result.ExcelPath != done.Result.ExcelPath ||
+		st.Result.SummaryPath != done.Result.SummaryPath || st.Result.TranscriptPath != done.Result.TranscriptPath ||
+		st.Result.Folder != a.cfg.Output.Dir || st.Result.Counts.Actions != 1 || len(st.Warnings) != 0 {
+		t.Fatalf("done session: %+v / %+v", st, st.Result)
+	}
+
+	// The files were deleted by hand: back to step 3.
+	_ = os.Remove(done.Result.ExcelPath)
+	_ = os.Remove(done.Result.SummaryPath)
+	if err := a.OpenSession(id); err != nil {
+		t.Fatal(err)
+	}
+	if st := a.Status(); st.State != StateTranscribed || st.Result != nil {
+		t.Fatalf("files gone: %+v", st)
+	}
+
+	if err := a.OpenSession("../x"); err == nil {
+		t.Error("must refuse bad session ids")
+	}
+	a.session = &session{meta: sessionMeta{ID: "20261028-100000"}}
+	if err := a.OpenSession(id); err == nil {
+		t.Error("must refuse while a session runs")
+	}
+}

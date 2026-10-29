@@ -32,6 +32,8 @@ export function Mode():Promise<string>;
 
 export function OpenPath(arg1:string):Promise<void>;
 
+export function OpenSession(arg1:string):Promise<void>;
+
 export function Outputs():Promise<app.Outputs>;
 
 export function SaveSettings(arg1:app.Settings):Promise<void>;

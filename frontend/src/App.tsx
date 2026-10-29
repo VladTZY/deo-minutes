@@ -25,6 +25,7 @@ function App() {
     const [status, setStatus] = useState<app.Status>(IDLE_STATUS);
     const [lines, setLines] = useState<string[]>([]);
     const [historyRev, setHistoryRev] = useState(0);
+    const [openedRev, setOpenedRev] = useState(0);
     const [mode, setMode] = useState<Mode>('demo');
     const [modeError, setModeError] = useState('');
     const [modeBusy, setModeBusy] = useState(false);
@@ -162,6 +163,7 @@ function App() {
                         lines={lines}
                         mode={mode}
                         ready={ready}
+                        openedRev={openedRev}
                         onClearLines={clearLines}
                         onShowHistory={showHistory}
                         onOpenSettings={openSettings}
@@ -176,6 +178,11 @@ function App() {
                         busy={active}
                         onStepStarted={() => {
                             clearLines();
+                            showMain();
+                        }}
+                        onSessionOpened={() => {
+                            clearLines();
+                            setOpenedRev(r => r + 1);
                             showMain();
                         }}
                     />

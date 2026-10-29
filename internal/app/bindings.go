@@ -243,23 +243,35 @@ func (a *App) OpenPath(path string) error {
 		return i18n.Errorf(err, "err.unexpected")
 	}
 	// Only folders and the documents the app writes: never launch programs.
-	if ext := strings.ToLower(filepath.Ext(clean)); !st.IsDir() && ext != ".xlsx" && ext != ".txt" {
+	if ext := strings.ToLower(filepath.Ext(clean)); !st.IsDir() && !openableExt[ext] {
 		return i18n.Errorf(nil, "err.unexpected")
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("explorer.exe", clean)
-	case "darwin":
-		cmd = exec.Command("open", clean)
-	default:
-		cmd = exec.Command("xdg-open", clean)
+	launch := a.launch
+	if launch == nil {
+		launch = launchDefault
 	}
-	if err := cmd.Start(); err != nil {
+	if err := launch(clean); err != nil {
 		slog.Error("open path", "err", err)
 		return i18n.Errorf(err, "err.unexpected")
 	}
 	return nil
+}
+
+// openableExt lists the files the app writes: the workbook, the summary and
+// the transcript.
+var openableExt = map[string]bool{".xlsx": true, ".docx": true, ".txt": true}
+
+func launchDefault(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer.exe", path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default:
+		cmd = exec.Command("xdg-open", path)
+	}
+	return cmd.Start()
 }
 
 func within(path, dir string) bool {

@@ -34,6 +34,7 @@ interface Props {
     lines: string[];
     mode: Mode;
     ready: Readiness;
+    openedRev: number; // bumps when Istoric opens a past session
     onClearLines: () => void;
     onShowHistory: () => void;
     onOpenSettings: (s: SettingsSection, field?: string) => void;
@@ -42,7 +43,7 @@ interface Props {
 type Pending = 'start' | 'stop' | 'import' | 'transcribe' | 'generate' | null;
 
 export default function MeetingPage(props: Props) {
-    const {status, lines, mode, ready, onClearLines, onShowHistory, onOpenSettings} = props;
+    const {status, lines, mode, ready, openedRev, onClearLines, onShowHistory, onOpenSettings} = props;
 
     const [link, setLink] = useState('');
     const [password, setPassword] = useState('');
@@ -124,13 +125,21 @@ export default function MeetingPage(props: Props) {
         }
     }, [active, dismissed]);
 
+    // A session opened from Istoric is shown even if it was closed before.
+    useEffect(() => {
+        if (openedRev > 0) {
+            setDismissed(null);
+            setActionError('');
+        }
+    }, [openedRev]);
+
     const setup = status.state === 'idle' || (!active && dismissed !== null && dismissed === status.sessionId);
     const flow = flowOf(status, setup, mode, failedAt);
 
     // A finished earlier step the user went back to, to read the transcript
     // or redo a step. Any change of state shows the live step again.
     const [view, setView] = useState<StepIndex | null>(null);
-    useEffect(() => setView(null), [status.state, status.sessionId]);
+    useEffect(() => setView(null), [status.state, status.sessionId, openedRev]);
     const sessionMode = status.mode || mode;
     const canView: [boolean, boolean, boolean] = [
         !setup && !active && (status.steps?.recorded ?? false) && sessionMode === 'demo',

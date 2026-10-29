@@ -62,6 +62,10 @@ export function OpenPath(arg1) {
   return window['go']['app']['App']['OpenPath'](arg1);
 }
 
+export function OpenSession(arg1) {
+  return window['go']['app']['App']['OpenSession'](arg1);
+}
+
 export function Outputs() {
   return window['go']['app']['App']['Outputs']();
 }

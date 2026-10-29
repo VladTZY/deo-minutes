@@ -902,6 +902,22 @@ input:disabled, select:disabled { background: var(--surface-2); color: var(--tex
     white-space: nowrap;
 }
 .project-name { font-weight: 600; }
+
+.row-link { cursor: pointer; }
+.row-link:hover td { background: var(--surface-2); }
+.row-open {
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+.row-link:hover .row-open, .row-open:focus-visible { color: var(--accent); text-decoration: underline; }
+.row-open:disabled { cursor: default; color: var(--text); }
 .row-sub { font-size: 12px; color: var(--text-3); }
 
 .marks { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }

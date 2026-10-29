@@ -89,6 +89,8 @@ Dacă folderul aplicației nu permite scrierea (de exemplu e într-o locație pr
 
 Înregistrarea și transcrierea rămân salvate. Corectează problema (de exemplu cheia OpenRouter/OpenAI sau setările gateway-ului), apoi deschide **Istoric**: fiecare ședință are butonul pentru pasul următor (**Transcrie**, **Generează** sau **Deschide Excel**).
 
+Un clic pe o ședință din **Istoric** o deschide în pagina **Ședință**, la ultimul pas terminat. De acolo deschizi Excel-ul sau rezumatul, citești transcrierea, schimbi bifele **Minuta** și **Rezumat** și generezi din nou. Fișierele noi primesc `_v2`, `_v3`, cele vechi rămân. Cât timp rulează o ședință, cele din Istoric nu se pot deschide.
+
 ## Probleme frecvente
 
 | Mesaj | Ce faci |

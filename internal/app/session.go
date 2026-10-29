@@ -25,7 +25,7 @@ import (
 	"deo-minutes/internal/stt"
 )
 
-// Files inside a session folder (%LOCALAPPDATA%\DEOMinutes\sessions\<id>).
+// Files inside a session folder (config.SessionsDir()\<id>).
 const (
 	metaFile       = "session.json"
 	transcriptFile = "transcript.jsonl"

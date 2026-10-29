@@ -72,7 +72,7 @@ func (a *App) emitDownload(p ModelDownload) {
 }
 
 func (a *App) downloadModel(ctx context.Context, url string) error {
-	dir := filepath.Join(config.AppDataDir(), "models")
+	dir := config.ModelsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return i18n.Errorf(err, "err.model.download", err.Error())
 	}

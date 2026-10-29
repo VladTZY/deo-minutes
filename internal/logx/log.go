@@ -1,4 +1,4 @@
-// Package logx writes JSON logs to %LOCALAPPDATA%\DEOMinutes\logs with
+// Package logx writes JSON logs to config.LogsDir() with
 // size-based rotation and redaction of secrets, URLs and transcript text.
 package logx
 

@@ -88,7 +88,7 @@ func (a *App) localPaths() (exe, model, vad string) {
 }
 
 // firstExisting returns override if set, else rel next to the executable,
-// else rel in the app data folder; "" when none exists.
+// else rel in the app data folder or the pre-portable one; "" when none exists.
 func firstExisting(override, rel string) string {
 	if override != "" {
 		if _, err := os.Stat(override); err == nil {
@@ -100,7 +100,7 @@ func firstExisting(override, rel string) string {
 	if exe, err := os.Executable(); err == nil {
 		bases = append(bases, filepath.Dir(exe))
 	}
-	bases = append(bases, config.AppDataDir())
+	bases = append(bases, config.AppDataDir(), config.LegacyDataDir())
 	for _, b := range bases {
 		p := filepath.Join(b, rel)
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {

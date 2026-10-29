@@ -30,7 +30,10 @@ func main() {
 	if closer, err := logx.Setup(config.LogsDir()); err == nil {
 		defer func() { _ = closer.Close() }()
 	}
-	slog.Info("start", "version", version, "elevated", bot.Elevated())
+	slog.Info("start", "version", version, "elevated", bot.Elevated(), "data", config.AppDataDir())
+	if moved, err := config.Migration(); len(moved) > 0 || err != nil {
+		slog.Info("data moved next to the app", "from", config.LegacyDataDir(), "moved", moved, "err", err)
+	}
 
 	if len(os.Args) > 1 && os.Args[1] == "--selftest" {
 		os.Exit(runSelftest(os.Args[2:]))

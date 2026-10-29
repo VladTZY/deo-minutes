@@ -18,7 +18,7 @@ DEMO (default) = local whisper.cpp + Romanian model, then OpenRouter, step by st
 
 ## Rules that are easy to break
 
-- **No admin rights, no cgo.** Pure Go only; write only under `config.AppDataDir()` and the output folder. The manifest stays `asInvoker`.
+- **No admin rights, no cgo.** Pure Go only; write only under `config.AppDataDir()` (`data\` next to the exe, else `%LOCALAPPDATA%\DEOMinutes`), `config.ModelsDir()` and the output folder. The manifest stays `asInvoker`.
 - **No GPU** (target laptops forbid it): WebView2 and the bot browser always run with `--disable-gpu --disable-gpu-compositing`; keep CSS free of blur/backdrop-filter/3D.
 - **Romanian user text** goes through `internal/i18n/ro.json` (`i18n.T`, `i18n.Errorf`; frontend `t()`); `TestAllReferencedKeysExist` fails on a missing key. Excel headers and enum values stay English (template).
 - **Secrets** only via `internal/secrets` (Credential Manager). Log with `slog`; `logx` redacts, but keep secrets and transcript text out of log calls anyway.

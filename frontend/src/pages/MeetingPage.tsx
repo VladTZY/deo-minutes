@@ -716,7 +716,7 @@ function TranscribedView({sessionId, mode, aiOk, pending, again, onGenerate, onB
             {!aiOk && (
                 <Missing
                     text={mode === 'demo' ? t("ready.openrouter.missing") : t("ready.ai.missing")}
-                    onFix={() => onOpenSettings(mode, mode === 'demo' ? 'or-key' : 'gw-model')}
+                    onFix={() => onOpenSettings(mode, mode === 'demo' ? 'demo-ai' : 'gw-model')}
                 />
             )}
             {err && <p className="msg msg-err" role="alert">{err}</p>}

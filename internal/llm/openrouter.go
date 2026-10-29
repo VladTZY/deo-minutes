@@ -101,15 +101,18 @@ func (o *OpenRouter) JSON(ctx context.Context, req Request) ([]byte, error) {
 	return readOpenRouterStream(resp.Body)
 }
 
-// readOpenRouterStream accumulates the content deltas of an SSE stream.
-func readOpenRouterStream(r io.Reader) ([]byte, error) {
+func readOpenRouterStream(r io.Reader) ([]byte, error) { return readChatStream(r, "OpenRouter") }
+
+// readChatStream accumulates the content deltas of an OpenAI-style chat
+// completions SSE stream; provider names the service in errors.
+func readChatStream(r io.Reader, provider string) ([]byte, error) {
 	var out strings.Builder
 	finish := ""
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 8<<20)
 	for sc.Scan() {
 		line := sc.Text()
-		if !strings.HasPrefix(line, "data:") { // comments (": OPENROUTER PROCESSING") and blanks
+		if !strings.HasPrefix(line, "data:") { // comments (": OPENROUTER PROCESSING"), event: lines and blanks
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
@@ -132,7 +135,7 @@ func readOpenRouterStream(r io.Reader) ([]byte, error) {
 			continue
 		}
 		if ev.Error != nil {
-			return nil, i18n.Errorf(fmt.Errorf("openrouter: %v %s", ev.Error.Code, ev.Error.Message), "err.gateway.failed", "eroare OpenRouter")
+			return nil, i18n.Errorf(fmt.Errorf("%s: %v %s", provider, ev.Error.Code, ev.Error.Message), "err.gateway.failed", "eroare "+provider)
 		}
 		for _, c := range ev.Choices {
 			out.WriteString(c.Delta.Content)

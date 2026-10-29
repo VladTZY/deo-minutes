@@ -22,6 +22,10 @@ export function DeleteHistory(arg1) {
   return window['go']['app']['App']['DeleteHistory'](arg1);
 }
 
+export function DeleteOpenAIKey() {
+  return window['go']['app']['App']['DeleteOpenAIKey']();
+}
+
 export function DeleteOpenRouterKey() {
   return window['go']['app']['App']['DeleteOpenRouterKey']();
 }
@@ -72,6 +76,10 @@ export function SetGatewayKey(arg1) {
 
 export function SetMode(arg1) {
   return window['go']['app']['App']['SetMode'](arg1);
+}
+
+export function SetOpenAIKey(arg1) {
+  return window['go']['app']['App']['SetOpenAIKey'](arg1);
 }
 
 export function SetOpenRouterKey(arg1) {

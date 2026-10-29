@@ -144,6 +144,18 @@ export namespace app {
 	        this.modelPath = source["modelPath"];
 	    }
 	}
+	export class OpenAISettings {
+	    model: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenAISettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	    }
+	}
 	export class OpenRouterSettings {
 	    model: string;
 	
@@ -210,6 +222,7 @@ export namespace app {
 	}
 	export class SecretStatus {
 	    openRouterKey: boolean;
+	    openAIKey: boolean;
 	    gatewayKey: boolean;
 	    aws: boolean;
 	
@@ -220,6 +233,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.openRouterKey = source["openRouterKey"];
+	        this.openAIKey = source["openAIKey"];
 	        this.gatewayKey = source["gatewayKey"];
 	        this.aws = source["aws"];
 	    }
@@ -240,7 +254,9 @@ export namespace app {
 	}
 	export class Settings {
 	    mode: string;
+	    demoAI: string;
 	    openrouter: OpenRouterSettings;
+	    openai: OpenAISettings;
 	    gateway: GatewaySettings;
 	    transcribe: TranscribeSettings;
 	    bot: BotSettings;
@@ -254,7 +270,9 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
+	        this.demoAI = source["demoAI"];
 	        this.openrouter = this.convertValues(source["openrouter"], OpenRouterSettings);
+	        this.openai = this.convertValues(source["openai"], OpenAISettings);
 	        this.gateway = this.convertValues(source["gateway"], GatewaySettings);
 	        this.transcribe = this.convertValues(source["transcribe"], TranscribeSettings);
 	        this.bot = this.convertValues(source["bot"], BotSettings);

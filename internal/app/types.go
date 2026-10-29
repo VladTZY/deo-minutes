@@ -84,8 +84,10 @@ type Status struct {
 
 // Settings is everything the Setări page edits, without secrets.
 type Settings struct {
-	Mode       string             `json:"mode"` // "demo" | "prod"
+	Mode       string             `json:"mode"`   // "demo" | "prod"
+	DemoAI     string             `json:"demoAI"` // "openrouter" | "openai"
 	OpenRouter OpenRouterSettings `json:"openrouter"`
+	OpenAI     OpenAISettings     `json:"openai"`
 	Gateway    GatewaySettings    `json:"gateway"`
 	Transcribe TranscribeSettings `json:"transcribe"`
 	Bot        BotSettings        `json:"bot"`
@@ -95,6 +97,10 @@ type Settings struct {
 
 type OpenRouterSettings struct {
 	Model string `json:"model"` // e.g. anthropic/claude-opus-5.5
+}
+
+type OpenAISettings struct {
+	Model string `json:"model"` // e.g. gpt-6-astra
 }
 
 type GatewaySettings struct {
@@ -126,6 +132,7 @@ type OutputSettings struct {
 
 type SecretStatus struct {
 	OpenRouterKey bool `json:"openRouterKey"`
+	OpenAIKey     bool `json:"openAIKey"`
 	GatewayKey    bool `json:"gatewayKey"`
 	AWS           bool `json:"aws"`
 }

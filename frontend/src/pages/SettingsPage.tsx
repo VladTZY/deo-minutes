@@ -3,12 +3,14 @@ import {
     ChooseOutputDir,
     DeleteAWSCredentials,
     DeleteGatewayKey,
+    DeleteOpenAIKey,
     DeleteOpenRouterKey,
     GetSettings,
     LocalStatus,
     SaveSettings,
     SetAWSCredentials,
     SetGatewayKey,
+    SetOpenAIKey,
     SetOpenRouterKey,
     TestAI,
     TestTranscribe,
@@ -26,13 +28,16 @@ type Msg = { ok: boolean; text: string } | null;
 
 // Editable part of the settings. Mode is owned by the header switch and
 // secrets are tracked separately, so neither overwrites unsaved edits.
-type Form = Pick<app.Settings, 'openrouter' | 'gateway' | 'transcribe' | 'bot' | 'output'>;
+type Form = Pick<app.Settings, 'demoAI' | 'openrouter' | 'openai' | 'gateway' | 'transcribe' | 'bot' | 'output'>;
 
 const DEFAULT_MODEL = 'anthropic/claude-opus-5.5';
+const DEFAULT_OPENAI_MODEL = 'gpt-6-astra';
 
 function toForm(s: app.Settings): Form {
     return {
+        demoAI: s.demoAI || 'openrouter',
         openrouter: {...s.openrouter},
+        openai: {...s.openai},
         gateway: {...s.gateway},
         transcribe: {...s.transcribe},
         bot: {...s.bot},
@@ -46,7 +51,7 @@ interface Props {
     onChanged: () => void;
 }
 
-const NO_SECRETS = {openRouterKey: false, gatewayKey: false, aws: false} as app.SecretStatus;
+const NO_SECRETS = {openRouterKey: false, openAIKey: false, gatewayKey: false, aws: false} as app.SecretStatus;
 
 export default function SettingsPage({mode, focus, onChanged}: Props) {
     const [form, setForm] = useState<Form | null>(null);
@@ -66,6 +71,7 @@ export default function SettingsPage({mode, focus, onChanged}: Props) {
 
     // Write-only secret inputs: never filled from the backend, cleared after use.
     const [orKey, setOrKey] = useState('');
+    const [oaKey, setOaKey] = useState('');
     const [gwKey, setGwKey] = useState('');
     const [awsId, setAwsId] = useState('');
     const [awsSecret, setAwsSecret] = useState('');
@@ -126,9 +132,15 @@ export default function SettingsPage({mode, focus, onChanged}: Props) {
     const dirty = JSON.stringify(form) !== saved;
     const setMsg = (k: string, m: Msg) => setMsgs(x => ({...x, [k]: m}));
 
-    function patch<K extends keyof Form>(section: K, values: Partial<Form[K]>) {
+    function patch<K extends Exclude<keyof Form, 'demoAI'>>(section: K, values: Partial<Form[K]>) {
         setMsg('save', null);
         setForm(f => (f ? {...f, [section]: {...f[section], ...values}} : f));
+    }
+
+    function setDemoAI(demoAI: string) {
+        setMsg('save', null);
+        setMsg('ai-demo', null);
+        setForm(f => (f ? {...f, demoAI} : f));
     }
 
     async function refreshSecrets() {
@@ -225,6 +237,7 @@ export default function SettingsPage({mode, focus, onChanged}: Props) {
     const demoOk = aiReady(r, 'demo') && localReady(local);
     const prodOk = !!secrets.aws && aiReady(r, 'prod');
     const usesKey = form.gateway.auth !== 'sigv4';
+    const openai = form.demoAI === 'openai';
 
     return (
         <div className="page settings">
@@ -241,36 +254,80 @@ export default function SettingsPage({mode, focus, onChanged}: Props) {
                     <span className="group-desc">{t("mode.demo.desc")}</span>
                 </summary>
                 <div className="group-body">
-                    <Block title={t("settings.openrouter.title")} badge={<SecretBadge set={secrets.openRouterKey}/>}>
-                        <SecretInput
-                            id="or-key"
-                            label={t("settings.openrouter.key")}
-                            hint={t("settings.openrouter.key.hint")}
-                            value={orKey}
-                            onChange={setOrKey}
-                            locked={locked}
-                            isSet={secrets.openRouterKey}
-                            msg={msgs['or-key']}
-                            onSave={() => secretAction('or-key', () => SetOpenRouterKey(orKey), t("settings.saved"), () => setOrKey(''))}
-                            onDelete={() => secretAction('or-key', () => DeleteOpenRouterKey(), t("settings.secret.deleted"), () => undefined)}
-                        />
+                    <Block title={t("settings.demoai.title")}
+                           badge={<SecretBadge set={openai ? secrets.openAIKey : secrets.openRouterKey}/>}>
                         <div className="field">
-                            <label htmlFor="or-model">{t("settings.openrouter.model")}</label>
-                            <input
-                                id="or-model"
-                                name="or-model"
-                                type="text"
-                                spellCheck={false}
-                                autoComplete="off"
-                                placeholder={DEFAULT_MODEL}
-                                aria-describedby="or-model-hint"
-                                value={form.openrouter.model}
-                                onChange={e => patch('openrouter', {model: e.target.value})}
-                            />
-                            <p id="or-model-hint" className="hint">{t("settings.openrouter.model.hint", DEFAULT_MODEL)}</p>
+                            <label htmlFor="demo-ai">{t("settings.demoai.provider")}</label>
+                            <select id="demo-ai" name="demo-ai" value={form.demoAI} aria-describedby="demo-ai-hint"
+                                    onChange={e => setDemoAI(e.target.value)}>
+                                <option value="openrouter">{t("settings.demoai.openrouter")}</option>
+                                <option value="openai">{t("settings.demoai.openai")}</option>
+                            </select>
+                            <p id="demo-ai-hint" className="hint">{t("settings.demoai.hint")}</p>
                         </div>
+                        {openai ? (
+                            <>
+                                <SecretInput
+                                    id="oa-key"
+                                    label={t("settings.openai.key")}
+                                    hint={t("settings.openrouter.key.hint")}
+                                    value={oaKey}
+                                    onChange={setOaKey}
+                                    locked={locked}
+                                    isSet={secrets.openAIKey}
+                                    msg={msgs['oa-key']}
+                                    onSave={() => secretAction('oa-key', () => SetOpenAIKey(oaKey), t("settings.saved"), () => setOaKey(''))}
+                                    onDelete={() => secretAction('oa-key', () => DeleteOpenAIKey(), t("settings.secret.deleted"), () => undefined)}
+                                />
+                                <div className="field">
+                                    <label htmlFor="oa-model">{t("settings.openrouter.model")}</label>
+                                    <input
+                                        id="oa-model"
+                                        name="oa-model"
+                                        type="text"
+                                        spellCheck={false}
+                                        autoComplete="off"
+                                        placeholder={DEFAULT_OPENAI_MODEL}
+                                        aria-describedby="oa-model-hint"
+                                        value={form.openai.model}
+                                        onChange={e => patch('openai', {model: e.target.value})}
+                                    />
+                                    <p id="oa-model-hint" className="hint">{t("settings.openrouter.model.hint", DEFAULT_OPENAI_MODEL)}</p>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <SecretInput
+                                    id="or-key"
+                                    label={t("settings.openrouter.key")}
+                                    hint={t("settings.openrouter.key.hint")}
+                                    value={orKey}
+                                    onChange={setOrKey}
+                                    locked={locked}
+                                    isSet={secrets.openRouterKey}
+                                    msg={msgs['or-key']}
+                                    onSave={() => secretAction('or-key', () => SetOpenRouterKey(orKey), t("settings.saved"), () => setOrKey(''))}
+                                    onDelete={() => secretAction('or-key', () => DeleteOpenRouterKey(), t("settings.secret.deleted"), () => undefined)}
+                                />
+                                <div className="field">
+                                    <label htmlFor="or-model">{t("settings.openrouter.model")}</label>
+                                    <input
+                                        id="or-model"
+                                        name="or-model"
+                                        type="text"
+                                        spellCheck={false}
+                                        autoComplete="off"
+                                        placeholder={DEFAULT_MODEL}
+                                        aria-describedby="or-model-hint"
+                                        value={form.openrouter.model}
+                                        onChange={e => patch('openrouter', {model: e.target.value})}
+                                    />
+                                    <p id="or-model-hint" className="hint">{t("settings.openrouter.model.hint", DEFAULT_MODEL)}</p>
+                                </div>
+                            </>
+                        )}
                         <TestRow
-                            label={busy === 'ai-demo' ? t("settings.testing") : t("settings.test.openrouter")}
+                            label={busy === 'ai-demo' ? t("settings.testing") : openai ? t("settings.test.openai") : t("settings.test.openrouter")}
                             disabled={locked || mode !== 'demo'}
                             note={mode !== 'demo' ? t("settings.test.onlyDemo") : ''}
                             msg={msgs['ai-demo']}

@@ -12,6 +12,8 @@ export function DeleteGatewayKey():Promise<void>;
 
 export function DeleteHistory(arg1:string):Promise<void>;
 
+export function DeleteOpenAIKey():Promise<void>;
+
 export function DeleteOpenRouterKey():Promise<void>;
 
 export function DownloadModel():Promise<void>;
@@ -37,6 +39,8 @@ export function SetAWSCredentials(arg1:string,arg2:string,arg3:string):Promise<v
 export function SetGatewayKey(arg1:string):Promise<void>;
 
 export function SetMode(arg1:string):Promise<void>;
+
+export function SetOpenAIKey(arg1:string):Promise<void>;
 
 export function SetOpenRouterKey(arg1:string):Promise<void>;
 

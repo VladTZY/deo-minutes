@@ -354,3 +354,45 @@ func TestModelDownloadResumesAndVerifies(t *testing.T) {
 		t.Error("corrupt partial must be deleted")
 	}
 }
+
+func TestDemoAIProviderChoice(t *testing.T) {
+	a, _ := newTestApp(t)
+	keyring.MockInit()
+	a.cfg.Mode = config.ModeDemo
+
+	a.cfg.DemoAI = config.DemoAIOpenAI
+	_, err := a.newLLM(context.Background())
+	var ue *i18n.UserError
+	if !errors.As(err, &ue) || ue.Key != "err.openai.notConfigured" {
+		t.Fatalf("openai without key: %v", err)
+	}
+	if err := a.SetOpenAIKey("sk-test"); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := a.newLLM(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if o, ok := c.(*llm.OpenAI); !ok || o.Model != "gpt-6-astra" {
+		t.Fatalf("want OpenAI client with default model, got %#v", c)
+	}
+
+	a.cfg.DemoAI = config.DemoAIOpenRouter
+	if _, err := a.newLLM(context.Background()); !errors.As(err, &ue) || ue.Key != "err.openrouter.notConfigured" {
+		t.Fatalf("openrouter without key: %v", err)
+	}
+
+	s := a.GetSettings()
+	if !s.Secrets.OpenAIKey || s.Secrets.OpenRouterKey || s.OpenAI.Model != "gpt-6-astra" {
+		t.Fatalf("settings: %+v", s)
+	}
+	s.DemoAI = "gemini"
+	if err := a.SaveSettings(s); !errors.As(err, &ue) || ue.Key != "err.settings.invalid" {
+		t.Fatalf("unknown provider must be rejected: %v", err)
+	}
+	s.DemoAI, s.OpenAI.Model = config.DemoAIOpenAI, "gpt-6.1-sol"
+	if err := a.SaveSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	if a.cfg.DemoAI != config.DemoAIOpenAI || a.cfg.OpenAI.Model != "gpt-6.1-sol" {
+		t.Fatalf("saved: %+v", a.cfg)
+	}
+}

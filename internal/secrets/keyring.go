@@ -17,6 +17,7 @@ const service = "DEOMinutes"
 const (
 	Gateway    = "gateway"    // bearer key for the Bedrock gateway (PROD)
 	OpenRouter = "openrouter" // OpenRouter API key (DEMO)
+	OpenAI     = "openai"     // OpenAI API key (DEMO)
 	AWS        = "aws"        // JSON-encoded AWSCredentials for Transcribe
 )
 

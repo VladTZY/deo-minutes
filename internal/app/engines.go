@@ -27,12 +27,19 @@ const (
 
 func jsonEncoder(w io.Writer) *json.Encoder { return json.NewEncoder(w) }
 
-// newLLM builds the AI client for the current mode: OpenRouter in DEMO,
-// Claude on Bedrock in PROD.
+// newLLM builds the AI client for the current mode: OpenRouter or OpenAI in
+// DEMO, Claude on Bedrock in PROD.
 func (a *App) newLLM(ctx context.Context) (llm.Client, error) {
 	a.mu.Lock()
 	c := a.cfg
 	a.mu.Unlock()
+	if c.Mode == config.ModeDemo && c.DemoAI == config.DemoAIOpenAI {
+		key, err := secrets.Get(secrets.OpenAI)
+		if err != nil {
+			return nil, i18n.Errorf(err, "err.openai.notConfigured")
+		}
+		return llm.NewOpenAI(key, c.OpenAI.Model, c.OpenAI.Effort)
+	}
 	if c.Mode == config.ModeDemo {
 		key, err := secrets.Get(secrets.OpenRouter)
 		if err != nil {

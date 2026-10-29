@@ -46,8 +46,20 @@ const (
 	ModeProd = "prod"
 )
 
-// OpenRouter is the DEMO-mode AI provider.
+// DEMO-mode AI providers.
+const (
+	DemoAIOpenRouter = "openrouter"
+	DemoAIOpenAI     = "openai"
+)
+
+// OpenRouter is a DEMO-mode AI provider (the default).
 type OpenRouter struct {
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+}
+
+// OpenAI is the other DEMO-mode AI provider: an OpenAI key, called directly.
+type OpenAI struct {
 	Model  string `json:"model"`
 	Effort string `json:"effort"`
 }
@@ -76,7 +88,9 @@ type Last struct {
 
 type Config struct {
 	Mode       string     `json:"mode"`
+	DemoAI     string     `json:"demo_ai"` // DemoAIOpenRouter | DemoAIOpenAI
 	OpenRouter OpenRouter `json:"openrouter"`
+	OpenAI     OpenAI     `json:"openai"`
 	LocalSTT   LocalSTT   `json:"local_stt"`
 	Gateway    Gateway    `json:"gateway"`
 	Transcribe Transcribe `json:"transcribe"`
@@ -89,7 +103,9 @@ type Config struct {
 func Defaults() Config {
 	return Config{
 		Mode:       ModeDemo,
+		DemoAI:     DemoAIOpenRouter,
 		OpenRouter: OpenRouter{Model: "anthropic/claude-opus-5.5", Effort: "high"},
+		OpenAI:     OpenAI{Model: "gpt-6-astra", Effort: "high"},
 		LocalSTT:   LocalSTT{Language: "ro"},
 		Gateway: Gateway{
 			Region:        "eu-central-1",

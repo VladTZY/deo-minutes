@@ -11,7 +11,7 @@ Comutatorul **DEMO | PROD** din colțul de sus alege cum se lucrează:
 | | DEMO | PROD |
 |---|---|---|
 | Transcriere | pe laptop, după ședință (model pentru limba română) | Amazon Transcribe, în timpul ședinței |
-| Completarea Excel-ului | OpenRouter | AWS Bedrock |
+| Completarea Excel-ului | OpenRouter sau OpenAI | AWS Bedrock |
 | Pași | 1. Înregistrează, 2. Transcrie, 3. Generează minuta: fiecare cu butonul lui | automat, după Pornește |
 
 DEMO este potrivit pentru teste: poți relua orice pas și poți importa o înregistrare WAV fără să intri într-o ședință.
@@ -20,7 +20,7 @@ DEMO este potrivit pentru teste: poți relua orice pas și poți importa o înre
 
 - Windows 10 sau 11, cu Google Chrome. Dacă nu e instalat, îl poți instala de pe google.com/chrome fără drepturi de administrator. Fără Chrome, botul folosește Microsoft Edge.
 - Conexiune la internet.
-- Pentru DEMO: o cheie OpenRouter. Transcriptorul local vine în arhivă (folderul `whisper`) și are nevoie de Microsoft Visual C++ Redistributable 2015-2022 (x64), prezent pe majoritatea calculatoarelor. Dacă modelul de transcriere nu este în arhivă, aplicația îl descarcă o singură dată (574 MB) la apăsarea butonului **Descarcă modelul** din „Verificări înainte de ședință”.
+- Pentru DEMO: o cheie OpenRouter sau o cheie OpenAI. Transcriptorul local vine în arhivă (folderul `whisper`) și are nevoie de Microsoft Visual C++ Redistributable 2015-2022 (x64), prezent pe majoritatea calculatoarelor. Dacă modelul de transcriere nu este în arhivă, aplicația îl descarcă o singură dată (574 MB) la apăsarea butonului **Descarcă modelul** din „Verificări înainte de ședință”.
 - Pentru PROD: chei AWS pentru Amazon Transcribe (regiunea `eu-central-1`, Frankfurt) și acces la modelul AI prin gateway-ul companiei sau direct prin AWS Bedrock.
 
 Cheile le primești de la persoana care administrează contul AWS al companiei.
@@ -30,7 +30,7 @@ Cheile le primești de la persoana care administrează contul AWS al companiei.
 1. Descarcă ultima versiune din [Releases](https://github.com/VladTZY/deo-minutes/releases/latest) (`DEOMinute-<versiune>-windows-amd64-lite.zip`) și dezarhiveaz-o într-un folder al tău, de exemplu `Documente\DEO Minute app`. Varianta `-lite` nu conține modelul de transcriere: aplicația îl descarcă la prima folosire (vezi Cerințe).
 2. Pornește `DEOMinute.exe`. Dacă Windows afișează „Windows a protejat computerul”, apasă **Mai multe informații**, apoi **Rulează oricum**. Aplicația nu este semnată digital, de aceea apare mesajul.
 3. Pagina **Ședință** arată în dreapta „Verificări înainte de ședință”: ce lipsește are un link direct spre setarea potrivită.
-4. În **Setări**, pentru DEMO: cheia OpenRouter, apoi butonul de test. Pentru PROD: cheile AWS (Access Key ID și Secret Access Key), gateway-ul AI dacă există (gol înseamnă direct AWS Bedrock), apoi testele. Cheile se salvează în Windows Credential Manager, nu într-un fișier.
+4. În **Setări**, pentru DEMO: alegi furnizorul (OpenRouter sau OpenAI), introduci cheia lui, apeși **Salvează**, apoi butonul de test. Modelul implicit este `anthropic/claude-opus-5.5` la OpenRouter și `gpt-6-astra` la OpenAI; îl poți schimba în același loc. Pentru PROD: cheile AWS (Access Key ID și Secret Access Key), gateway-ul AI dacă există (gol înseamnă direct AWS Bedrock), apoi testele. Cheile se salvează în Windows Credential Manager, nu într-un fișier.
 
 ## Înregistrarea unei ședințe
 
@@ -50,7 +50,7 @@ Botul iese singur când ședința se termină, când este scos din ședință, d
 
 1. **Transcrie**: rulează pe laptop. Durează aproximativ cât ședința sau mai mult, în funcție de procesor; bara arată progresul. Poți opri și relua.
 2. Verifici textul transcrierii afișat pe ecran.
-3. **Generează minuta**: completează Excel-ul prin OpenRouter, apoi apare **Deschide Excel**.
+3. **Generează minuta**: completează Excel-ul prin OpenRouter sau OpenAI, după furnizorul ales în Setări, apoi apare **Deschide Excel**.
 
 Te poți întoarce oricând la un pas terminat: apasă pe pas în bara de sus sau pe **Vezi transcrierea**. De acolo poți citi transcrierea, poți genera minuta din nou (se salvează un fișier nou, `_v2`) sau poți transcrie din nou înregistrarea. **Înapoi la pasul curent** te readuce la rezultat.
 
@@ -86,7 +86,7 @@ Dacă folderul aplicației nu permite scrierea (de exemplu e într-o locație pr
 
 ## Dacă un pas eșuează
 
-Înregistrarea și transcrierea rămân salvate. Corectează problema (de exemplu cheia OpenRouter sau setările gateway-ului), apoi deschide **Istoric**: fiecare ședință are butonul pentru pasul următor (**Transcrie**, **Generează** sau **Deschide Excel**).
+Înregistrarea și transcrierea rămân salvate. Corectează problema (de exemplu cheia OpenRouter/OpenAI sau setările gateway-ului), apoi deschide **Istoric**: fiecare ședință are butonul pentru pasul următor (**Transcrie**, **Generează** sau **Deschide Excel**).
 
 ## Probleme frecvente
 
@@ -99,6 +99,8 @@ Dacă folderul aplicației nu permite scrierea (de exemplu e într-o locație pr
 | Cheile AWS pentru transcriere nu sunt configurate | Setări → Chei AWS. |
 | Gateway-ul AI a refuzat cheia | Verifică cheia și tipul de autentificare din Setări → Mod PROD. |
 | Contul OpenRouter nu mai are credit | Adaugă credit în contul OpenRouter. |
+| Contul OpenAI nu mai are credit (insufficient_quota) | Adaugă credit în contul OpenAI (platform.openai.com → Billing). |
+| Modelul OpenAI din Setări nu există | Verifică numele modelului în Setări → Mod DEMO, sau lasă câmpul gol pentru modelul implicit. |
 | Transcriptorul local are nevoie de Microsoft Visual C++ | Cere echipei IT „Visual C++ Redistributable 2015-2022 x64” sau o arhivă care îl include. |
 
 Jurnalul aplicației, util pentru suport, este în `data\logs`, lângă `DEOMinute.exe`. Nu conține chei, parole sau textul transcrierii.

@@ -32,7 +32,7 @@ export function aiReady(r: Readiness, mode: Mode): boolean {
         return false;
     }
     if (mode === 'demo') {
-        return !!s.secrets?.openRouterKey;
+        return s.demoAI === 'openai' ? !!s.secrets?.openAIKey : !!s.secrets?.openRouterKey;
     }
     const g = s.gateway;
     const cred = g?.auth === 'sigv4' ? !!s.secrets?.aws : !!s.secrets?.gatewayKey;
@@ -46,6 +46,7 @@ export function checksFor(r: Readiness, mode: Mode): Check[] | null {
     }
     if (mode === 'demo') {
         const key = aiReady(r, 'demo');
+        const openai = r.settings.demoAI === 'openai';
         const local = localReady(r.local);
         return [
             {
@@ -55,8 +56,8 @@ export function checksFor(r: Readiness, mode: Mode): Check[] | null {
                     : r.local?.whisperFound ? t("ready.model.missing") : t("ready.local.missing"),
             },
             {
-                id: 'openrouter', ok: key, fix: 'demo', field: 'or-key',
-                label: t("ready.openrouter"),
+                id: 'openrouter', ok: key, fix: 'demo', field: openai ? 'oa-key' : 'or-key',
+                label: openai ? t("ready.openai") : t("ready.openrouter"),
                 detail: key ? t("ready.openrouter.ok") : t("ready.openrouter.missing"),
             },
         ];

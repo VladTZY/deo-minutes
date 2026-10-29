@@ -29,12 +29,29 @@
     return st.visibility !== "hidden" && st.display !== "none" && !el.disabled;
   }
 
+  // Text of the elements named by aria-labelledby and of <label for=...>.
+  // Webex's own inputs carry their name only this way, inside a shadow root.
+  function labelText(el) {
+    const parts = [];
+    const ids = el.getAttribute && el.getAttribute("aria-labelledby");
+    const root = el.getRootNode && el.getRootNode();
+    if (ids && root && root.getElementById) {
+      for (const id of ids.split(/\s+/)) {
+        const l = root.getElementById(id);
+        if (l && l !== el) parts.push(l.innerText);
+      }
+    }
+    for (const l of el.labels || []) parts.push(l.innerText);
+    return parts.join(" | ");
+  }
+
   function labelOf(el) {
     return lower([
       el.getAttribute && el.getAttribute("aria-label"),
       el.getAttribute && el.getAttribute("title"),
       el.getAttribute && el.getAttribute("placeholder"),
       el.getAttribute && el.getAttribute("name"),
+      labelText(el),
       el.tagName === "INPUT" ? "" : el.innerText,
     ].filter(Boolean).join(" | "));
   }

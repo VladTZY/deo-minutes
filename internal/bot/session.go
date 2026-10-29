@@ -364,13 +364,27 @@ func (s *Session) fill(needles []string, value string) bool {
 	return s.inFrames(fmt.Sprintf("!!window.__deoPage && window.__deoPage.fill(%s, %s)", mustJSON(needles), mustJSON(value)))
 }
 
-// clickUnless clicks the first match whose label contains none of skip
-// (e.g. "mute" but not "unmute").
+// clickUnless clicks the first match none of whose label parts starts with
+// one of skip: "Unmute" is skipped, but Webex's "Microphone is currently
+// unmuted - click to mute" is still clicked.
 func (s *Session) clickUnless(needles, skip []string) bool {
 	js := fmt.Sprintf(`(() => { const P = window.__deoPage; if (!P) return false; const el = P.find("clickable", %s);
-		if (!el) return false; const l = P.labelOf(el); if (%s.some((x) => l.includes(x))) return false; el.click(); return true; })()`,
+		if (!el) return false; const parts = P.labelOf(el).split(" | ").map((p) => p.trim());
+		if (%s.some((x) => parts.some((p) => p.startsWith(x)))) return false; el.click(); return true; })()`,
 		mustJSON(needles), mustJSON(skip))
 	return s.inFrames(js)
+}
+
+// muteSelf turns the microphone and camera off; the toggles are skipped when
+// their label already offers to turn them back on.
+func (s *Session) muteSelf() {
+	sel := s.opts.Selectors
+	if s.clickUnless(sel.MuteMic, []string{"unmute"}) {
+		slog.Info("bot muted microphone")
+	}
+	if s.clickUnless(sel.StopVideo, []string{"start video", "turn on"}) {
+		slog.Info("bot stopped video")
+	}
 }
 
 func (s *Session) joinLoop(ctx context.Context) error {
@@ -430,6 +444,7 @@ func (s *Session) joinLoop(ctx context.Context) error {
 		case "wrong_password":
 			return i18n.Errorf(nil, "err.webex.wrongPassword")
 		case "in_meeting":
+			s.muteSelf() // in case the client turned them back on while joining
 			return nil
 		case "lobby":
 			if lobbySince.IsZero() {
@@ -449,14 +464,15 @@ func (s *Session) joinLoop(ctx context.Context) error {
 			s.fill(sel.PasswordInput, s.opts.Password)
 			_ = s.click(sel.Next) || s.click(sel.JoinButton)
 		case "prejoin":
+			s.click(sel.CookieAccept) // the banner can cover the join button
+			s.muteSelf()              // some sites show the mic and camera next to the name
 			s.fill(sel.NameInput, s.opts.DisplayName)
 			if s.opts.Email != "" {
 				s.fill(sel.EmailInput, s.opts.Email)
 			}
 			_ = s.click(sel.Next) || s.click(sel.JoinButton)
 		case "preview":
-			s.clickUnless(sel.MuteMic, []string{"unmute"})
-			s.clickUnless(sel.StopVideo, []string{"start video", "turn on"})
+			s.muteSelf()
 			s.click(sel.JoinButton)
 		case "landing":
 			s.click(sel.JoinFromBrowser)

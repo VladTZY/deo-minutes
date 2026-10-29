@@ -36,7 +36,7 @@ type Selectors struct {
 
 // DefaultSelectors reflects the Webex web client as far as known before S1.
 var DefaultSelectors = Selectors{
-	CookieAccept:    []string{"accept all", "accept cookies", "i accept"},
+	CookieAccept:    []string{"accept all", "accept cookies", "i accept", "accept", "allow all"},
 	JoinFromBrowser: []string{"join from your browser", "join from browser", "join from this browser", "use web app", "join from the web"},
 	NameInput:       []string{"your name", "display name", "full name", "name"},
 	EmailInput:      []string{"email address", "email"},

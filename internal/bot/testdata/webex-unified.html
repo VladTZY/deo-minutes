@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Webex</title></head>
+<body>
+<!-- Shape of the 2026 Webex unified web client (web.webex.com), as seen on a
+     real meeting: name and the mic/camera toggles on one screen, controls are
+     shadow-DOM custom elements, the name input is labelled only through
+     aria-labelledby, and Join stays disabled until a name is typed. -->
+<div id="app">
+  <h2>Enter your name and join</h2>
+  <x-input id="name"></x-input>
+  <x-button id="mic" aria-label="Microphone is currently unmuted - click to mute">Mute</x-button>
+  <x-button id="cam" aria-label="Sending video is currently enabled - click to disable">Stop video</x-button>
+  <x-button id="join" aria-label="Join meeting, Please complete the required fields" disabled>Join meeting</x-button>
+</div>
+<div id="cookies"><x-button id="reject">Reject</x-button><x-button id="accept">Accept</x-button></div>
+<script>
+  const entered = { name: "", muted: false, videoOff: false };
+  window.__entered = entered;
+
+  customElements.define("x-input", class extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: "open" });
+      root.innerHTML = `<label part="label" for="in1" id="heading-id">Name</label>
+        <input id="in1" type="text" aria-label="" placeholder="" aria-labelledby="heading-id" required>`;
+      root.getElementById("in1").addEventListener("input", (e) => {
+        entered.name = e.target.value;
+        join.toggleAttribute("disabled", !e.target.value);
+      });
+    }
+  });
+  customElements.define("x-button", class extends HTMLElement {
+    connectedCallback() {
+      this.setAttribute("role", "button");
+      this.attachShadow({ mode: "open" }).innerHTML = "<slot></slot>";
+    }
+    get disabled() { return this.hasAttribute("disabled"); }
+  });
+
+  const join = document.getElementById("join");
+  const mic = document.getElementById("mic");
+  const cam = document.getElementById("cam");
+  mic.onclick = () => {
+    entered.muted = !entered.muted;
+    mic.textContent = entered.muted ? "Unmute" : "Mute";
+    mic.setAttribute("aria-label", entered.muted
+      ? "Microphone is currently muted - click to unmute"
+      : "Microphone is currently unmuted - click to mute");
+  };
+  cam.onclick = () => {
+    entered.videoOff = !entered.videoOff;
+    cam.textContent = entered.videoOff ? "Start video" : "Stop video";
+    cam.setAttribute("aria-label", entered.videoOff
+      ? "Sending video is currently disabled - click to enable"
+      : "Sending video is currently enabled - click to disable");
+  };
+  document.getElementById("accept").onclick = () => document.getElementById("cookies").remove();
+  join.onclick = () => {
+    if (join.disabled) return;
+    document.getElementById("app").innerHTML =
+      `<x-button aria-label="Leave meeting">Leave</x-button>`;
+  };
+</script>
+</body></html>

@@ -326,3 +326,47 @@ func TestJoinClientInNewTab(t *testing.T) {
 	joinVia(t, `<!doctype html><title>Meeting</title>
 		<a href="%s" target="_blank">Join from your browser</a>`)
 }
+
+// TestJoinUnifiedClient: the 2026 Webex web client puts the name and the
+// mic/camera toggles on one screen, inside shadow roots, with the name input
+// labelled only by aria-labelledby. The bot must fill it and join muted with
+// the camera off.
+func TestJoinUnifiedClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("needs a browser")
+	}
+	if _, err := FindBrowser(""); err != nil {
+		t.Skip("no Edge/Chrome installed")
+	}
+	html, err := os.ReadFile("testdata/webex-unified.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(html)
+	}))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	s, err := Join(ctx, Options{
+		Link:         MeetingLink{URL: ts.URL + "/"},
+		DisplayName:  "Asistent Minute",
+		Headless:     true,
+		Selectors:    DefaultSelectors,
+		AllowedHosts: []string{"127.0.0.1"},
+		JoinTimeout:  45 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	entered, err := eval[map[string]any](s, "window.__entered")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entered["name"] != "Asistent Minute" || entered["muted"] != true || entered["videoOff"] != true {
+		t.Errorf("want name filled, muted, video off; got %v", entered)
+	}
+}

@@ -34,8 +34,8 @@ export function DownloadModel() {
   return window['go']['app']['App']['DownloadModel']();
 }
 
-export function Generate(arg1) {
-  return window['go']['app']['App']['Generate'](arg1);
+export function Generate(arg1, arg2) {
+  return window['go']['app']['App']['Generate'](arg1, arg2);
 }
 
 export function GetSettings() {
@@ -60,6 +60,10 @@ export function Mode() {
 
 export function OpenPath(arg1) {
   return window['go']['app']['App']['OpenPath'](arg1);
+}
+
+export function Outputs() {
+  return window['go']['app']['App']['Outputs']();
 }
 
 export function SaveSettings(arg1) {

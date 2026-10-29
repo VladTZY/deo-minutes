@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import {DeleteHistory, Generate, History, OpenPath, Transcribe} from '../../wailsjs/go/app/App';
+import {DeleteHistory, Generate, History, OpenPath, Outputs, Transcribe} from '../../wailsjs/go/app/App';
 import {app} from '../../wailsjs/go/models';
 import {t} from '../lib/i18n';
 import {errorText} from '../lib/errors';
@@ -39,13 +39,13 @@ export default function HistoryPage({refreshKey, busy, onStepStarted}: Props) {
         }
     }
 
-    const onOpen = (it: app.HistoryItem) => act(it.id, () => OpenPath(it.excelPath));
+    const onOpen = (path: string) => act(path, () => OpenPath(path));
     const onTranscribe = (it: app.HistoryItem) => act(it.id, async () => {
         await Transcribe(it.id);
         onStepStarted();
     });
     const onGenerate = (it: app.HistoryItem) => act(it.id, async () => {
-        await Generate(it.id);
+        await Generate(it.id, await Outputs()); // the last choice made in step 3
         onStepStarted();
     });
     const onDelete = (it: app.HistoryItem) => act(it.id, async () => {
@@ -156,16 +156,26 @@ export default function HistoryPage({refreshKey, busy, onStepStarted}: Props) {
 function NextAction({it, disabled, onOpen, onTranscribe, onGenerate}: {
     it: app.HistoryItem;
     disabled: boolean;
-    onOpen: (it: app.HistoryItem) => void;
+    onOpen: (path: string) => void;
     onTranscribe: (it: app.HistoryItem) => void;
     onGenerate: (it: app.HistoryItem) => void;
 }) {
-    if (it.excelPath) {
+    if (it.excelPath || it.summaryPath) {
         // Opening a file never conflicts with a running session.
         return (
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => onOpen(it)}>
-                {t("main.openExcel")}
-            </button>
+            <>
+                {it.excelPath && (
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => onOpen(it.excelPath)}>
+                        {t("main.openExcel")}
+                    </button>
+                )}
+                {it.summaryPath && (
+                    <button type="button" className={it.excelPath ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'}
+                            onClick={() => onOpen(it.summaryPath)}>
+                        {t("history.openSummary")}
+                    </button>
+                )}
+            </>
         );
     }
     if (it.canGenerate) {

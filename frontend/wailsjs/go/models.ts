@@ -84,6 +84,7 @@ export namespace app {
 	    mode: string;
 	    imported: string;
 	    excelPath: string;
+	    summaryPath: string;
 	    counts: Counts;
 	    steps: Steps;
 	    canTranscribe: boolean;
@@ -102,6 +103,7 @@ export namespace app {
 	        this.mode = source["mode"];
 	        this.imported = source["imported"];
 	        this.excelPath = source["excelPath"];
+	        this.summaryPath = source["summaryPath"];
 	        this.counts = this.convertValues(source["counts"], Counts);
 	        this.steps = this.convertValues(source["steps"], Steps);
 	        this.canTranscribe = source["canTranscribe"];
@@ -184,8 +186,23 @@ export namespace app {
 	        this.keepAudio = source["keepAudio"];
 	    }
 	}
+	export class Outputs {
+	    minutes: boolean;
+	    summary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Outputs(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.minutes = source["minutes"];
+	        this.summary = source["summary"];
+	    }
+	}
 	export class Result {
 	    excelPath: string;
+	    summaryPath: string;
 	    transcriptPath: string;
 	    folder: string;
 	    counts: Counts;
@@ -197,6 +214,7 @@ export namespace app {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.excelPath = source["excelPath"];
+	        this.summaryPath = source["summaryPath"];
 	        this.transcriptPath = source["transcriptPath"];
 	        this.folder = source["folder"];
 	        this.counts = this.convertValues(source["counts"], Counts);

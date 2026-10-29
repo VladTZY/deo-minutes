@@ -4,6 +4,7 @@ import {
     Generate,
     ImportAudio,
     OpenPath,
+    Outputs,
     Start,
     Stop,
     SuggestMeetingNo,
@@ -54,6 +55,12 @@ export default function MeetingPage(props: Props) {
     const [dismissed, setDismissed] = useState<string | null>(null);
 
     const active = isActive(status.state);
+
+    // What step 3 makes; the backend remembers the last choice.
+    const [outputs, setOutputs] = useState<app.Outputs>(() => app.Outputs.createFrom({minutes: true, summary: true}));
+    useEffect(() => {
+        Outputs().then(o => o && (o.minutes || o.summary) && setOutputs(o)).catch(() => undefined);
+    }, []);
 
     useEffect(() => {
         Defaults()
@@ -180,7 +187,7 @@ export default function MeetingPage(props: Props) {
         await Transcribe(status.sessionId);
     });
 
-    const onGenerate = () => act('generate', () => Generate(status.sessionId));
+    const onGenerate = () => act('generate', () => Generate(status.sessionId, outputs));
 
     function onNew() {
         setActionError('');
@@ -213,6 +220,8 @@ export default function MeetingPage(props: Props) {
                 aiOk={aiReady(ready, sessionMode === 'prod' ? 'prod' : 'demo')}
                 pending={pending}
                 again={status.steps?.generated ?? false}
+                outputs={outputs}
+                onOutputs={setOutputs}
                 onGenerate={onGenerate}
                 onBack={canView[0] ? () => setView(0) : undefined}
                 onResume={onResume}
@@ -264,6 +273,8 @@ export default function MeetingPage(props: Props) {
                 mode={mode}
                 aiOk={aiReady(ready, mode)}
                 pending={pending}
+                outputs={outputs}
+                onOutputs={setOutputs}
                 onGenerate={onGenerate}
                 onBack={canView[0] ? () => setView(0) : undefined}
                 onNew={onNew}
@@ -654,12 +665,14 @@ function TranscribingView({status, pending, onStop}: { status: app.Status; pendi
 
 // ---------- Step 3 ----------
 
-function TranscribedView({sessionId, mode, aiOk, pending, again, onGenerate, onBack, onResume, onNew, onOpenSettings}: {
+function TranscribedView({sessionId, mode, aiOk, pending, again, outputs, onOutputs, onGenerate, onBack, onResume, onNew, onOpenSettings}: {
     sessionId: string;
     mode: Mode;
     aiOk: boolean;
     pending: Pending;
     again?: boolean;
+    outputs: app.Outputs;
+    onOutputs: (o: app.Outputs) => void;
     onGenerate: () => void;
     onBack?: () => void;
     onResume?: () => void;
@@ -707,12 +720,35 @@ function TranscribedView({sessionId, mode, aiOk, pending, again, onGenerate, onB
                     {onResume && (
                         <button type="button" className="btn btn-secondary" onClick={onResume}>{t("step.resume")}</button>
                     )}
-                    <button type="button" className="btn btn-primary btn-lg" disabled={pending !== null || !aiOk}
+                    <button type="button" className="btn btn-primary btn-lg"
+                            disabled={pending !== null || !aiOk || (!outputs.minutes && !outputs.summary)}
                             onClick={onGenerate}>
-                        {pending === 'generate' ? t("main.starting") : again ? t("transcribed.action.again") : t("transcribed.action")}
+                        {pending === 'generate' ? t("main.starting") : generateLabel(outputs, again)}
                     </button>
                 </div>
             </div>
+            <fieldset className="outputs">
+                <legend className="sub-title">{t("outputs.legend")}</legend>
+                <label className="output-opt">
+                    <input type="checkbox" name="out-minutes" checked={outputs.minutes}
+                           onChange={e => onOutputs(app.Outputs.createFrom({...outputs, minutes: e.target.checked}))}/>
+                    <span>
+                        <span className="output-name">{t("outputs.minutes")}</span>
+                        <span className="output-desc">{t("outputs.minutes.desc")}</span>
+                    </span>
+                </label>
+                <label className="output-opt">
+                    <input type="checkbox" name="out-summary" checked={outputs.summary}
+                           onChange={e => onOutputs(app.Outputs.createFrom({...outputs, summary: e.target.checked}))}/>
+                    <span>
+                        <span className="output-name">{t("outputs.summary")}</span>
+                        <span className="output-desc">{t("outputs.summary.desc")}</span>
+                    </span>
+                </label>
+                {!outputs.minutes && !outputs.summary && (
+                    <p className="msg msg-err" role="alert">{t("err.outputs.none")}</p>
+                )}
+            </fieldset>
             {!aiOk && (
                 <Missing
                     text={mode === 'demo' ? t("ready.openrouter.missing") : t("ready.ai.missing")}
@@ -731,6 +767,16 @@ function TranscribedView({sessionId, mode, aiOk, pending, again, onGenerate, onB
             )}
         </section>
     );
+}
+
+function generateLabel(o: app.Outputs, again?: boolean): string {
+    if (again) {
+        return t("transcribed.action.again");
+    }
+    if (o.minutes && o.summary) {
+        return t("transcribed.action.both");
+    }
+    return o.summary ? t("transcribed.action.summary") : t("transcribed.action");
 }
 
 function GeneratingView({status}: { status: app.Status }) {
@@ -778,7 +824,10 @@ function DoneView({result, onTranscript, onNew}: { result?: app.Result; onTransc
     return (
         <section className="panel stage stage-done" aria-labelledby="stage-title">
             <div className="stage-split">
-                <h1 id="stage-title" className="stage-title">{t("main.done.title")}</h1>
+                <h1 id="stage-title" className="stage-title">
+                    {result?.excelPath && result?.summaryPath ? t("main.done.title.both")
+                        : result?.summaryPath ? t("main.done.title.summary") : t("main.done.title")}
+                </h1>
                 <div className="primary-row primary-row-end">
                     <button type="button" className="btn btn-ghost" onClick={onNew}>{t("main.new")}</button>
                     {onTranscript && (
@@ -791,6 +840,12 @@ function DoneView({result, onTranscript, onNew}: { result?: app.Result; onTransc
                             {t("main.openFolder")}
                         </button>
                     )}
+                    {result?.summaryPath && (
+                        <button type="button" className={result.excelPath ? 'btn btn-secondary' : 'btn btn-primary btn-lg'}
+                                onClick={() => open(result.summaryPath)}>
+                            {t("main.openSummary")}
+                        </button>
+                    )}
                     {result?.excelPath && (
                         <button type="button" className="btn btn-primary btn-lg" onClick={() => open(result.excelPath)}>
                             {t("main.openExcel")}
@@ -798,14 +853,14 @@ function DoneView({result, onTranscript, onNew}: { result?: app.Result; onTransc
                     )}
                 </div>
             </div>
-            <dl className="counts">
+            {result?.excelPath && <dl className="counts">
                 {counts.map(x => (
                     <div key={x.label} className="count">
                         <dt>{x.label}</dt>
                         <dd className="tabular">{x.n}</dd>
                     </div>
                 ))}
-            </dl>
+            </dl>}
             {err && <p className="msg msg-err" role="alert">{err}</p>}
         </section>
     );

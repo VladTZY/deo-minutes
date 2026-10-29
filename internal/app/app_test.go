@@ -107,7 +107,7 @@ func TestGenerateWritesExcelAndHistory(t *testing.T) {
 	if len(h) != 1 || !h[0].CanGenerate || h[0].CanTranscribe || h[0].ExcelPath != "" {
 		t.Fatalf("history before: %+v", h)
 	}
-	if err := a.Generate(id); err != nil {
+	if err := a.Generate(id, Outputs{Minutes: true}); err != nil {
 		t.Fatal(err)
 	}
 	st := waitState(t, statuses, StateDone, StateError)
@@ -131,7 +131,7 @@ func TestGenerateWritesExcelAndHistory(t *testing.T) {
 		t.Fatalf("history after: %+v", h)
 	}
 	// Generating again never overwrites the first workbook.
-	if err := a.Generate(id); err != nil {
+	if err := a.Generate(id, Outputs{Minutes: true}); err != nil {
 		t.Fatal(err)
 	}
 	st2 := waitState(t, statuses, StateDone, StateError)
@@ -145,7 +145,7 @@ func TestGenerateWithoutGatewayShowsRomanianError(t *testing.T) {
 	keyring.MockInit()
 	a.cfg.Mode = config.ModeProd
 	writeSession(t, "20261027-110000")
-	if err := a.Generate("20261027-110000"); err != nil {
+	if err := a.Generate("20261027-110000", Outputs{Minutes: true}); err != nil {
 		t.Fatal(err)
 	}
 	st := waitState(t, statuses, StateError, StateDone)
@@ -182,7 +182,7 @@ func TestPathSafety(t *testing.T) {
 	if err := a.OpenPath("/etc/passwd"); err == nil {
 		t.Error("must refuse paths outside the app's folders")
 	}
-	if err := a.Generate("../../etc"); err == nil {
+	if err := a.Generate("../../etc", Outputs{Minutes: true}); err == nil {
 		t.Error("must refuse bad session ids")
 	}
 	if err := a.DeleteHistory("../x"); err == nil {
@@ -219,7 +219,7 @@ func TestDemoWithoutOpenRouterKey(t *testing.T) {
 	keyring.MockInit()
 	a.cfg.Mode = config.ModeDemo
 	writeSession(t, "20261027-120000")
-	if err := a.Generate("20261027-120000"); err != nil {
+	if err := a.Generate("20261027-120000", Outputs{Minutes: true}); err != nil {
 		t.Fatal(err)
 	}
 	st := waitState(t, statuses, StateError, StateDone)
@@ -296,7 +296,7 @@ func TestDemoStepsImportTranscribeGenerate(t *testing.T) {
 			return []byte(`{}`), nil
 		}), nil
 	}
-	if err := a.Generate(id); err != nil {
+	if err := a.Generate(id, Outputs{Minutes: true}); err != nil {
 		t.Fatal(err)
 	}
 	st = waitState(t, statuses, StateDone, StateError)
@@ -394,5 +394,95 @@ func TestDemoAIProviderChoice(t *testing.T) {
 	}
 	if a.cfg.DemoAI != config.DemoAIOpenAI || a.cfg.OpenAI.Model != "gpt-6.1-sol" {
 		t.Fatalf("saved: %+v", a.cfg)
+	}
+}
+
+// fakeBoth answers the register passes with one action and the summary
+// call with a short summary; failSummary makes the summary call fail.
+func fakeBoth(failSummary bool) func(context.Context) (llm.Client, error) {
+	return func(context.Context) (llm.Client, error) {
+		return llm.Func(func(_ context.Context, req llm.Request) ([]byte, error) {
+			props := req.Schema["properties"].(map[string]any)
+			if _, ok := props["overview"]; ok {
+				if failSummary {
+					return nil, i18n.Errorf(nil, "err.gateway.limit")
+				}
+				return json.Marshal(minutes.Summary{Overview: "Raportul de buget se trimite vineri.", Decisions: []string{"Lansarea se mută în decembrie."}})
+			}
+			if _, ok := props["actions"]; ok {
+				return json.Marshal(minutes.Records{Actions: []minutes.ActionItem{{Key: "a1", Title: "Raport buget",
+					Evidence: []minutes.Evidence{{At: "00:02:00", Speaker: "Ion Ionescu", Quote: "trimiți raportul de buget până vineri"}}}}})
+			}
+			return []byte(`{}`), nil
+		}), nil
+	}
+}
+
+func TestGenerateOutputsChoice(t *testing.T) {
+	a, statuses := newTestApp(t)
+	id := "20261027-100000"
+	writeSession(t, id)
+	a.llmFactory = fakeBoth(false)
+
+	if err := a.Generate(id, Outputs{}); err == nil {
+		t.Fatal("nothing ticked must be refused")
+	}
+
+	// Summary only: a .docx, no workbook, and the choice is remembered.
+	if err := a.Generate(id, Outputs{Summary: true}); err != nil {
+		t.Fatal(err)
+	}
+	st := waitState(t, statuses, StateDone, StateError)
+	if st.State != StateDone || st.Result.ExcelPath != "" || filepath.Base(st.Result.SummaryPath) != "261027_Proiect Test_Minuta_3_rezumat.docx" {
+		t.Fatalf("summary only: %+v / %+v", st, st.Result)
+	}
+	if _, err := os.Stat(st.Result.SummaryPath); err != nil {
+		t.Fatal(err)
+	}
+	if o := a.Outputs(); o.Minutes || !o.Summary {
+		t.Errorf("choice not remembered: %+v", o)
+	}
+	if h := a.History(); !h[0].Steps.Generated || h[0].SummaryPath != st.Result.SummaryPath || h[0].ExcelPath != "" {
+		t.Errorf("history: %+v", h[0])
+	}
+
+	// Both: one base name for the pair, next version after the summary-only run.
+	if err := a.Generate(id, Outputs{Minutes: true, Summary: true}); err != nil {
+		t.Fatal(err)
+	}
+	st = waitState(t, statuses, StateDone, StateError)
+	if st.State != StateDone || filepath.Base(st.Result.ExcelPath) != "261027_Proiect Test_Minuta_3_v2.xlsx" ||
+		filepath.Base(st.Result.SummaryPath) != "261027_Proiect Test_Minuta_3_v2_rezumat.docx" || st.Result.Counts.Actions != 1 {
+		t.Fatalf("both: %+v", st.Result)
+	}
+}
+
+func TestGenerateKeepsMinutesWhenSummaryFails(t *testing.T) {
+	a, statuses := newTestApp(t)
+	id := "20261027-100000"
+	writeSession(t, id)
+	a.llmFactory = fakeBoth(true)
+	if err := a.Generate(id, Outputs{Minutes: true, Summary: true}); err != nil {
+		t.Fatal(err)
+	}
+	st := waitState(t, statuses, StateDone, StateError)
+	if st.State != StateDone || st.Result.ExcelPath == "" || st.Result.SummaryPath != "" {
+		t.Fatalf("status: %+v / %+v", st, st.Result)
+	}
+	want := i18n.T("warn.summaryFailed", i18n.T("err.gateway.limit"))
+	found := false
+	for _, w := range st.Warnings {
+		found = found || w == want
+	}
+	if !found {
+		t.Errorf("warnings %q lack %q", st.Warnings, want)
+	}
+
+	// Summary alone failing is an error.
+	if err := a.Generate(id, Outputs{Summary: true}); err != nil {
+		t.Fatal(err)
+	}
+	if st := waitState(t, statuses, StateDone, StateError); st.State != StateError {
+		t.Fatalf("summary-only failure must be an error: %+v", st)
 	}
 }

@@ -49,6 +49,7 @@ type sessionMeta struct {
 	BotName      string    `json:"bot_name"`
 	Imported     string    `json:"imported,omitempty"` // file name when created from an imported recording
 	ExcelPath    string    `json:"excel_path,omitempty"`
+	SummaryPath  string    `json:"summary_path,omitempty"`
 	Counts       Counts    `json:"counts"`
 }
 
@@ -247,7 +248,7 @@ func (a *App) run(ctx context.Context, s *session, cfg config.Config, opts bot.O
 		if !cfg.Output.KeepAudio {
 			_ = os.Remove(filepath.Join(s.dir, audioFile))
 		}
-		a.generate(ctx, s)
+		a.generate(ctx, s, Outputs{Minutes: cfg.Output.Minutes, Summary: cfg.Output.Summary})
 		return
 	}
 	// DEMO: stop here; the user runs Transcribe, then Generate.
@@ -434,8 +435,11 @@ func (w *transcriptWriter) write(l *speakers.Line) {
 func (w *transcriptWriter) close() error { return w.f.Close() }
 
 // generate turns the saved transcript into the Excel workbook.
-func (a *App) generate(ctx context.Context, s *session) {
+func (a *App) generate(ctx context.Context, s *session, out Outputs) {
 	a.setStatus(func(st *Status) { st.State, st.CanStop, st.Progress = StateGenerating, false, 0 })
+	if !out.Minutes && !out.Summary {
+		out.Minutes = true // an old config with both off still gets the minutes
+	}
 	t, err := readTranscript(filepath.Join(s.dir, transcriptFile))
 	if err != nil || len(t) == 0 {
 		a.endSession(i18n.Errorf(err, "warn.transcriptEmpty"))
@@ -450,14 +454,51 @@ func (a *App) generate(ctx context.Context, s *session) {
 		a.endSession(err)
 		return
 	}
-	x := &minutes.Extractor{LLM: client}
 	date := s.meta.Started
-	recs, rep, err := x.Extract(ctx, minutes.MeetingInfo{Project: s.meta.Project, Date: date, Participants: s.meta.Participants}, t)
-	if err != nil {
-		a.endSession(err)
+	info := minutes.MeetingInfo{Project: s.meta.Project, Date: date, Participants: s.meta.Participants}
+
+	// The minutes and the summary are independent calls over the same
+	// transcript, so they run side by side; one failing keeps the other.
+	var (
+		wg             sync.WaitGroup
+		recs           minutes.Records
+		rep            minutes.Report
+		sum            minutes.Summary
+		recErr, sumErr error
+	)
+	if out.Minutes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			recs, rep, recErr = (&minutes.Extractor{LLM: client}).Extract(ctx, info, t)
+		}()
+	}
+	if out.Summary {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sum, sumErr = (&minutes.Extractor{LLM: client}).Summarize(ctx, info, t)
+		}()
+	}
+	wg.Wait()
+	okMinutes, okSummary := out.Minutes && recErr == nil, out.Summary && sumErr == nil
+	if !okMinutes && !okSummary {
+		if recErr != nil {
+			a.endSession(recErr)
+		} else {
+			a.endSession(sumErr)
+		}
 		return
 	}
-	if rep.Dropped > 0 {
+	if out.Minutes && recErr != nil {
+		slog.Error("minutes failed, summary kept", "err", recErr)
+		a.warn(i18n.T("warn.minutesFailed", userMessage(recErr)))
+	}
+	if out.Summary && sumErr != nil {
+		slog.Error("summary failed, minutes kept", "err", sumErr)
+		a.warn(i18n.T("warn.summaryFailed", userMessage(sumErr)))
+	}
+	if okMinutes && rep.Dropped > 0 {
 		a.warn(i18n.T("warn.recordsDropped", rep.Dropped))
 	}
 
@@ -465,11 +506,6 @@ func (a *App) generate(ctx context.Context, s *session) {
 	m := export.Meeting{Project: s.meta.Project, No: s.meta.MeetingNo, Date: date, PreparedBy: s.meta.PreparedBy}
 	for _, p := range s.meta.Participants {
 		m.Participants = append(m.Participants, export.Participant{Name: p, Attendance: "Call"})
-	}
-	xlsx, err := export.Render(m, recs)
-	if err != nil {
-		a.endSession(i18n.Errorf(err, "err.excel.write", err.Error()))
-		return
 	}
 	a.mu.Lock()
 	outDir := a.cfg.Output.Dir
@@ -483,18 +519,36 @@ func (a *App) generate(ctx context.Context, s *session) {
 		a.endSession(i18n.Errorf(err, "err.excel.write", err.Error()))
 		return
 	}
-	excelPath := filepath.Join(outDir, base+".xlsx")
-	txtPath := filepath.Join(outDir, base+"_transcriere.txt")
-	if err := export.WriteFileAtomic(excelPath, xlsx); err != nil {
-		a.endSession(i18n.Errorf(err, "err.excel.write", err.Error()))
-		return
+	res := Result{Folder: outDir, TranscriptPath: filepath.Join(outDir, base+export.TranscriptSuffix)}
+	if okMinutes {
+		xlsx, err := export.Render(m, recs)
+		if err == nil {
+			res.ExcelPath = filepath.Join(outDir, base+export.ExcelSuffix)
+			err = export.WriteFileAtomic(res.ExcelPath, xlsx)
+		}
+		if err != nil {
+			a.endSession(i18n.Errorf(err, "err.excel.write", err.Error()))
+			return
+		}
+		res.Counts = Counts{Actions: len(recs.Actions), Decisions: len(recs.Decisions), Risks: len(recs.Risks),
+			Interdependencies: len(recs.Interdependencies), Changes: len(recs.Changes)}
+		s.meta.ExcelPath, s.meta.Counts = res.ExcelPath, res.Counts
 	}
-	if err := export.WriteFileAtomic(txtPath, []byte(strings.ReplaceAll(t.Render(), "\n", "\r\n"))); err != nil {
+	if okSummary {
+		doc, err := export.RenderSummary(m, sum)
+		if err == nil {
+			res.SummaryPath = filepath.Join(outDir, base+export.SummarySuffix)
+			err = export.WriteFileAtomic(res.SummaryPath, doc)
+		}
+		if err != nil {
+			a.endSession(i18n.Errorf(err, "err.summary.write", err.Error()))
+			return
+		}
+		s.meta.SummaryPath = res.SummaryPath
+	}
+	if err := export.WriteFileAtomic(res.TranscriptPath, []byte(strings.ReplaceAll(t.Render(), "\n", "\r\n"))); err != nil {
 		slog.Warn("transcript write", "err", err)
 	}
-	counts := Counts{Actions: len(recs.Actions), Decisions: len(recs.Decisions), Risks: len(recs.Risks),
-		Interdependencies: len(recs.Interdependencies), Changes: len(recs.Changes)}
-	s.meta.ExcelPath, s.meta.Counts = excelPath, counts
 	_ = writeJSON(filepath.Join(s.dir, metaFile), s.meta)
 
 	a.mu.Lock()
@@ -502,7 +556,7 @@ func (a *App) generate(ctx context.Context, s *session) {
 	a.mu.Unlock()
 	a.setStatus(func(st *Status) {
 		st.State = StateDone
-		st.Result = &Result{ExcelPath: excelPath, TranscriptPath: txtPath, Folder: outDir, Counts: counts}
+		st.Result = &res
 		st.Steps = a.steps(s.dir, s.meta)
 	})
 }

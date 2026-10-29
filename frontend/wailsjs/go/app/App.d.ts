@@ -18,7 +18,7 @@ export function DeleteOpenRouterKey():Promise<void>;
 
 export function DownloadModel():Promise<void>;
 
-export function Generate(arg1:string):Promise<void>;
+export function Generate(arg1:string,arg2:app.Outputs):Promise<void>;
 
 export function GetSettings():Promise<app.Settings>;
 
@@ -31,6 +31,8 @@ export function LocalStatus():Promise<app.LocalStatus>;
 export function Mode():Promise<string>;
 
 export function OpenPath(arg1:string):Promise<void>;
+
+export function Outputs():Promise<app.Outputs>;
 
 export function SaveSettings(arg1:app.Settings):Promise<void>;
 

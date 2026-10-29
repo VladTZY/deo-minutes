@@ -51,15 +51,24 @@ type Counts struct {
 	Changes           int `json:"changes"`
 }
 
-// Result of a finished meeting.
+// Outputs chooses what step 3 generates; at least one is set.
+type Outputs struct {
+	Minutes bool `json:"minutes"` // the Excel minutes (company workbook)
+	Summary bool `json:"summary"` // the Word summary
+}
+
+// Result of a finished meeting. A path is empty when that output was not
+// generated in this run.
 type Result struct {
 	ExcelPath      string `json:"excelPath"`
+	SummaryPath    string `json:"summaryPath"`
 	TranscriptPath string `json:"transcriptPath"`
 	Folder         string `json:"folder"`
 	Counts         Counts `json:"counts"`
 }
 
-// Steps a session has completed: 1 record, 2 transcribe, 3 generate Excel.
+// Steps a session has completed: 1 record, 2 transcribe, 3 generate the
+// minutes and/or the summary.
 type Steps struct {
 	Recorded    bool `json:"recorded"`
 	Transcribed bool `json:"transcribed"`
@@ -144,8 +153,9 @@ type HistoryItem struct {
 	Project       string `json:"project"`
 	MeetingNo     int    `json:"meetingNo"`
 	Mode          string `json:"mode"`
-	Imported      string `json:"imported"`  // file name if imported, else empty
-	ExcelPath     string `json:"excelPath"` // empty if not generated
+	Imported      string `json:"imported"`    // file name if imported, else empty
+	ExcelPath     string `json:"excelPath"`   // empty if not generated
+	SummaryPath   string `json:"summaryPath"` // empty if not generated
 	Counts        Counts `json:"counts"`
 	Steps         Steps  `json:"steps"`
 	CanTranscribe bool   `json:"canTranscribe"` // audio exists (step 2 can run)

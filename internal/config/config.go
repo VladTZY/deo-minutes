@@ -76,6 +76,8 @@ type LocalSTT struct {
 
 type Output struct {
 	Dir           string `json:"dir"`
+	Minutes       bool   `json:"minutes"` // generate the Excel minutes
+	Summary       bool   `json:"summary"` // generate the Word summary
 	KeepAudio     bool   `json:"keep_audio"`
 	RetentionDays int    `json:"retention_days"`
 }
@@ -127,7 +129,7 @@ func Defaults() Config {
 			SilenceEndMin:   10,
 			Headless:        true,
 		},
-		Output: Output{Dir: filepath.Join(DocumentsDir(), "DEO Minute"), RetentionDays: 30},
+		Output: Output{Dir: filepath.Join(DocumentsDir(), "DEO Minute"), RetentionDays: 30, Minutes: true, Summary: true},
 		Last:   Last{MeetingNoByProject: map[string]int{}},
 	}
 }

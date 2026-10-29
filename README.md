@@ -44,13 +44,13 @@ Informează participanții că ședința este înregistrată și transcrisă.
 
 Botul iese singur când ședința se termină, când este scos din ședință, după 10 minute de liniște sau după 5 ore. Poți opri oricând cu **Oprește**; se păstrează ce s-a înregistrat până atunci.
 
-În **PROD**, minuta se generează automat după ședință și apare **Deschide Excel**.
+În **PROD**, după ședință se generează automat ce era bifat ultima dată la pasul 3 (implicit minuta și rezumatul), apoi apar **Deschide Excel** și **Deschide rezumatul**.
 
 În **DEMO**, apeși pe rând:
 
 1. **Transcrie**: rulează pe laptop. Durează aproximativ cât ședința sau mai mult, în funcție de procesor; bara arată progresul. Poți opri și relua.
 2. Verifici textul transcrierii afișat pe ecran.
-3. **Generează minuta**: completează Excel-ul prin OpenRouter sau OpenAI, după furnizorul ales în Setări, apoi apare **Deschide Excel**.
+3. Bifezi ce vrei să generezi: **Minuta (Excel)**, **Rezumat (Word)** sau amândouă, apoi apeși butonul. Se folosește OpenRouter sau OpenAI, după furnizorul ales în Setări. La final apar **Deschide Excel** și/sau **Deschide rezumatul**. Aplicația ține minte bifele pentru data viitoare.
 
 Te poți întoarce oricând la un pas terminat: apasă pe pas în bara de sus sau pe **Vezi transcrierea**. De acolo poți citi transcrierea, poți genera minuta din nou (se salvează un fișier nou, `_v2`) sau poți transcrie din nou înregistrarea. **Înapoi la pasul curent** te readuce la rezultat.
 
@@ -61,6 +61,7 @@ Pentru un test fără ședință, folosește **Importă o înregistrare WAV** (1
 În `Documente\DEO Minute`:
 
 - `AALLZZ_<Proiect>_Minuta_<Nr>.xlsx`: registrul completat, după șablonul companiei.
+- `AALLZZ_<Proiect>_Minuta_<Nr>_rezumat.docx`: rezumatul ședinței (Word): pe scurt, subiecte discutate, decizii, acțiuni, puncte deschise, pași următori. Se generează doar dacă e bifat.
 - `AALLZZ_<Proiect>_Minuta_<Nr>_transcriere.txt`: transcrierea, cu ora și numele vorbitorului.
 
 Un fișier existent nu se suprascrie: a doua variantă primește sufixul `_v2`.

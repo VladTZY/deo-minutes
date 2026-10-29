@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,7 +29,7 @@ func (a *App) steps(dir string, meta sessionMeta) Steps {
 	return Steps{
 		Recorded:    exists(audioFile),
 		Transcribed: exists(transcriptFile),
-		Generated:   meta.ExcelPath != "",
+		Generated:   meta.ExcelPath != "" || meta.SummaryPath != "",
 	}
 }
 
@@ -148,9 +149,31 @@ func (a *App) transcribeLocal(ctx context.Context, s *session, local *stt.Local)
 	return os.Rename(tmp, filepath.Join(s.dir, transcriptFile))
 }
 
-// Generate fills the Excel from a session's transcript (step 3) with the
-// current mode's AI provider. Also used to retry after a failure.
-func (a *App) Generate(id string) error {
+// Outputs returns what step 3 generates by default (the last choice).
+func (a *App) Outputs() Outputs {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return Outputs{Minutes: a.cfg.Output.Minutes, Summary: a.cfg.Output.Summary}
+}
+
+// Generate makes the chosen outputs from a session's transcript (step 3)
+// with the current mode's AI provider, and remembers the choice (PROD uses
+// it after each meeting). Also used to retry after a failure.
+func (a *App) Generate(id string, out Outputs) error {
+	if !out.Minutes && !out.Summary {
+		return i18n.Errorf(nil, "err.outputs.none")
+	}
+	a.mu.Lock()
+	if a.cfg.Output.Minutes != out.Minutes || a.cfg.Output.Summary != out.Summary {
+		c := a.cfg
+		c.Output.Minutes, c.Output.Summary = out.Minutes, out.Summary
+		if err := config.Save(config.Path(), c); err != nil {
+			slog.Warn("save output choice", "err", err)
+		} else {
+			a.cfg = c
+		}
+	}
+	a.mu.Unlock()
 	s, err := a.loadSession(id)
 	if err != nil {
 		return err
@@ -162,7 +185,7 @@ func (a *App) Generate(id string) error {
 	a.setStatus(func(st *Status) {
 		*st = Status{State: StateGenerating, SessionID: s.meta.ID, Mode: s.meta.Mode, Steps: a.steps(s.dir, s.meta)}
 	})
-	go a.generate(a.ctx, s)
+	go a.generate(a.ctx, s, out)
 	return nil
 }
 
@@ -327,7 +350,7 @@ func (a *App) History() []HistoryItem {
 		idle := m.ID != running
 		out = append(out, HistoryItem{
 			ID: m.ID, Date: m.Started.Format("02.01.2006 15:04"), Project: m.Project, MeetingNo: m.MeetingNo,
-			Mode: m.Mode, Imported: m.Imported, ExcelPath: m.ExcelPath, Counts: m.Counts, Steps: st,
+			Mode: m.Mode, Imported: m.Imported, ExcelPath: m.ExcelPath, SummaryPath: m.SummaryPath, Counts: m.Counts, Steps: st,
 			CanTranscribe: idle && st.Recorded,
 			CanGenerate:   idle && st.Transcribed,
 		})

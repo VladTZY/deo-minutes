@@ -36,9 +36,15 @@ func safeName(s string) string {
 	return s
 }
 
-// UniqueBase returns base, or base_v2, base_v3…, such that neither
-// base.xlsx nor base_transcriere.txt exists in dir. Existing minutes are
-// never overwritten.
+// File name suffixes after the base name.
+const (
+	ExcelSuffix      = ".xlsx"
+	SummarySuffix    = "_rezumat.docx"
+	TranscriptSuffix = "_transcriere.txt"
+)
+
+// UniqueBase returns base, or base_v2, base_v3…, such that none of the
+// output files exists in dir. Existing minutes are never overwritten.
 func UniqueBase(dir, base string) (string, error) {
 	for v := 1; v < 1000; v++ {
 		cand := base
@@ -46,7 +52,7 @@ func UniqueBase(dir, base string) (string, error) {
 			cand = fmt.Sprintf("%s_v%d", base, v)
 		}
 		free := true
-		for _, suffix := range []string{".xlsx", "_transcriere.txt"} {
+		for _, suffix := range []string{ExcelSuffix, SummarySuffix, TranscriptSuffix} {
 			_, err := os.Stat(filepath.Join(dir, cand+suffix))
 			if err == nil {
 				free = false
